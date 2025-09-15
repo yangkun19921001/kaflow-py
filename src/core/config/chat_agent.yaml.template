@@ -1,0 +1,214 @@
+# =================================================================
+# KaFlow-Py 聊天机器人模版
+# 基于 KaFlow-Py 协议标准的简单聊天 Agent 配置
+# =================================================================
+
+# =================================================================
+# 协议版本与元信息
+# =================================================================
+protocol:
+  name: "KaFlow-Py Chat Agent Template"
+  version: "1.0.0"
+  schema_version: "2025.09.10"
+  description: "基于 KaFlow-Py 的聊天机器人模版"
+  author: "DevYK"
+  license: "MIT"
+
+# =================================================================
+# 全局配置
+# =================================================================
+global_config:
+  runtime:
+    timeout: 120
+    max_retries: 3
+    parallel_limit: 1
+    debug_mode: false
+    trace_enabled: true
+    checkpoint_enabled: true
+
+  logging:
+    level: "INFO"
+    format: "json"
+    output: "stdout"
+    file_path: "./logs/chat_agent.log"
+    max_size: "50MB"
+    max_files: 5
+
+  memory:
+    enabled: true
+    provider: "sqlite"
+    ttl: 7200  # 2小时
+    max_size: "50MB"
+    connection:
+      host: "localhost"
+      database: "chat_memory.db"
+
+# =================================================================
+# LLM 配置
+# =================================================================
+llm_config:
+  base_url: "https://api.openai.com/v1"
+  api_key: "${OPENAI_API_KEY}"
+  model: "gpt-4o-mini"
+  temperature: 0.7
+  max_tokens: 2048
+  timeout: 30
+
+# =================================================================
+# Agent 配置
+# =================================================================
+agents:
+  chat_agent:
+    name: "chat_agent"
+    type: "agent"
+    description: "智能聊天机器人"
+    enabled: true
+    
+    system_prompt: |
+      你是一个友好、专业的AI助手。你的任务是：
+      1. 理解用户的问题和需求
+      2. 提供准确、有用的回答
+      3. 保持对话的连贯性和上下文理解
+      4. 用温和、礼貌的语气与用户交流
+      5. 如果不确定答案，诚实地表达不确定性
+      
+      请始终记住之前的对话内容，并根据上下文提供相关回答。
+    
+    llm:
+      base_url: "https://api.openai.com/v1"
+      api_key: "${OPENAI_API_KEY}"
+      model: "gpt-4o-mini"
+      temperature: 0.7
+      max_tokens: 2048
+      timeout: 30
+
+# =================================================================
+# 记忆配置
+# =================================================================
+memory:
+  enabled: true
+  provider: "sqlite"
+  ttl: 7200
+  max_size: "50MB"
+  connection:
+    database: "chat_memory.db"
+  
+  memory_types:
+    conversation:
+      enabled: true
+      ttl: 7200
+      max_messages: 50
+    
+    agent_context:
+      enabled: true
+      ttl: 1800
+      max_context_size: 4096
+
+
+# =================================================================
+# 使用说明
+# =================================================================
+usage_notes: |
+  聊天机器人模版使用说明：
+  
+  1. 功能特点：
+     - 支持连续对话和上下文理解
+     - 自动记忆管理（基于全局memory配置）
+     - 可配置的AI模型参数
+     - 简洁的两节点工作流：开始 → 聊天Agent → 结束
+  
+  2. 环境变量：
+     - OPENAI_API_KEY: OpenAI API密钥
+  
+  3. 启动方式：
+     python main.py --config config/chat_agent.yaml
+  
+  4. 自定义配置：
+     - 修改 system_prompt 定制AI助手的行为
+     - 调整 temperature 控制回答的创造性
+     - 修改 max_tokens 控制回答长度
+     - 配置不同的记忆存储后端 
+
+
+
+# =================================================================
+# 工作流配置
+# =================================================================
+workflow:
+  name: "聊天机器人工作流"
+  version: "1.0.0"
+  description: "简单的聊天机器人，支持对话记忆和上下文理解"
+  author: "DevYK"
+  schema_version: "2025.09.10"
+  
+  settings:
+    timeout: 120
+    max_retries: 3
+    debug_mode: false
+
+  # =================================================================
+  # 节点定义
+  # =================================================================
+  nodes:
+    - name: "start_node"
+      type: "start"
+      description: "工作流开始节点"
+      position:
+        x: 100
+        y: 100
+      outputs:
+        - name: "user_input"
+          type: "string"
+          description: "用户输入内容"
+
+    - name: "chat_agent"
+      type: "agent"
+      description: "聊天机器人 Agent"
+      agent_ref: "chat_agent"  # 引用 agents 配置段中的 chat_agent
+      position:
+        x: 300
+        y: 100
+      
+      inputs:
+        - name: "user_message"
+          type: "string"
+          required: true
+          source: "start_node.user_input"
+          description: "用户输入的消息"
+        - name: "thread_id"
+          type: "string"
+          required: false
+          description: "对话线程ID，用于记忆管理"
+      
+      outputs:
+        - name: "response"
+          type: "string"
+          description: "AI助手的回复"
+        - name: "confidence"
+          type: "number"
+          description: "回答的置信度"
+
+    - name: "end_node"
+      type: "end"
+      description: "工作流结束节点"
+      position:
+        x: 700
+        y: 100
+      inputs:
+        - name: "final_response"
+          type: "string"
+          required: true
+          source: "chat_agent.response"
+          description: "最终回复内容"
+
+  # =================================================================
+  # 边定义 (连接关系)
+  # =================================================================
+  edges:
+    - from: "start_node"
+      to: "chat_agent"
+      description: "传递用户输入到聊天Agent"
+      
+    - from: "chat_agent"
+      to: "end_node"
+      description: "输出最终回复"

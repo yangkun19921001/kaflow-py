@@ -1,0 +1,794 @@
+# =================================================================
+# KaFlow-Py 配置协议标准定义
+# 低代码编排架构轻量级 AI Agent 开发框架协议
+# =================================================================
+
+# =================================================================
+# 协议版本与元信息
+# =================================================================
+protocol:
+  name: "KaFlow-Py Protocol"                    # 协议名称 (必填)
+  version: "1.0.0"                             # 协议版本 (必填)
+  schema_version: "2025.09.10"                     # 模式版本 (必填)
+  description: "轻量级 AI Agent 低代码编排框架协议"  # 协议描述 (可选)
+  author: "DevYK"                              # 作者 (可选)
+  license: "MIT"                               # 许可证 (可选)
+  
+# =================================================================
+# 全局配置标准 (Global Configuration Schema)
+# =================================================================
+global_config:
+  # 日志配置
+  logging:                                     # 日志配置 (可选)
+    level: "INFO"                            # 日志级别: DEBUG|INFO|WARN|ERROR (可选)
+    format: "text"                           # 日志格式: json|text (可选)
+    output: "stdout"                         # 输出目标: stdout|file (可选)
+    file_path: "./logs/kaflow.log"           # 日志文件路径 (可选)
+    max_size: "100MB"                        # 最大文件大小 (可选)
+    max_files: 10                            # 最大文件数量 (可选)
+  
+  # 记忆存储配置
+  memory:                                    # 记忆存储配置 (可选)
+    enabled: true                            # 启用记忆存储 (可选)
+    provider: "sqlite"                       # 存储提供商: memory|redis|postgresql|mongodb|sqlite (可选)
+    ttl: 3600                                # 默认过期时间(秒) (可选)
+    max_size: "100MB"                        # 最大存储大小 (可选)
+    connection:                              # 连接配置 (可选)
+      host: "localhost"                      # 主机地址 (可选)
+      port: 6379                             # 端口号 (可选)
+      database: ""                           # 数据库 db 名称 (可选)
+      username: ""                           # 用户名 (可选)
+      password: "${MEMORY_PASSWORD}"         # 密码 (可选)
+      pool_size: 10                          # 连接池大小 (可选)
+
+
+# =================================================================
+# LLM 配置标准 (LLM Configuration Schema)
+# =================================================================
+llm_schema:
+  # 基础配置结构
+  base_config:                                 # 基础配置结构 (必填)
+    base_url:                                 # API基础URL (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: "https://api.openai.com/v1"    # 默认值 (可选)
+      description: "LLM API基础URL"           # 描述 (可选)
+      
+    api_key:                                  # API密钥 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      sensitive: true                         # 敏感信息标记 (可选)
+      description: "LLM API密钥"              # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min_length: 10                       # 最小长度 (可选)
+        
+    model:                                    # 模型名称 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      default: "gpt-4o-mini"                  # 默认值 (可选)
+      description: "LLM模型名称"              # 描述 (可选)
+      enum:                                   # 枚举值 (可选)
+        - "gpt-4o"
+        - "gpt-4o-mini"
+        - "gpt-3.5-turbo"
+        - "claude-3-sonnet"
+        - "claude-3-haiku"
+        
+    temperature:                              # 温度参数 (可选)
+      type: "number"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: 0.7                            # 默认值 (可选)
+      description: "生成随机性控制"            # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min: 0.0                             # 最小值 (可选)
+        max: 2.0                             # 最大值 (可选)
+        
+    max_tokens:                               # 最大token数 (可选)
+      type: "integer"                         # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: 1024                           # 默认值 (可选)
+      description: "最大生成token数"          # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min: 1                               # 最小值 (可选)
+        max: 32768                           # 最大值 (可选)
+        
+    timeout:                                  # 请求超时 (可选)
+      type: "integer"                         # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: 30                             # 默认值 (可选)
+      description: "请求超时时间(秒)"         # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min: 1                               # 最小值 (可选)
+        max: 300                             # 最大值 (可选)
+
+# =================================================================
+# Agent 配置标准 (Agent Configuration Schema)
+# =================================================================
+agent_schema:
+  # Agent基础结构
+  base_structure:                              # Agent基础结构 (必填)
+    name:                                     # Agent名称 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "Agent唯一标识名称"        # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"   # 命名规则 (可选)
+        min_length: 3                        # 最小长度 (可选)
+        max_length: 50                       # 最大长度 (可选)
+        
+    type:                                     # Agent类型 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "Agent类型"                # 描述 (可选)
+      enum:                                   # 枚举值 (必填)
+        - "agent"                            # 基础Agent
+        - "react_agent"                      # ReAct Agent
+
+        
+    description:                              # Agent描述 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "Agent功能描述"            # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        max_length: 500                      # 最大长度 (可选)
+        
+    enabled:                                  # 是否启用 (可选)
+      type: "boolean"                         # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: true                           # 默认值 (可选)
+      description: "是否启用此Agent"          # 描述 (可选)
+      
+    system_prompt:                            # 系统提示词 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "Agent系统提示词"          # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min_length: 10                       # 最小长度 (可选)
+        max_length: 8192                     # 最大长度 (可选)
+        
+    llm:                                      # LLM配置 (必填)
+      type: "object"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "Agent使用的LLM配置"       # 描述 (可选)
+      schema: "llm_schema.base_config"        # 引用LLM配置模式 (必填)
+      
+    mcp_servers:                              # MCP服务器配置 (可选)
+      type: "array"                           # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "MCP服务器列表"            # 描述 (可选)
+      items:                                  # 数组项定义 (必填)
+        type: "object"                        # 数组项类型 (必填)
+        schema: "mcp_schema.server_config"    # 引用MCP配置模式 (必填)
+        
+    tools:                                    # 工具配置 (可选)
+      type: "array"                           # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "Agent可用工具列表"        # 描述 (可选)
+      items:                                  # 数组项定义 (必填)
+        type: "object"                        # 数组项类型 (必填)
+        schema: "tool_schema.tool_config"     # 引用工具配置模式 (必填)
+
+# =================================================================
+# MCP 配置标准 (MCP Configuration Schema)
+# =================================================================
+mcp_schema:
+  # MCP服务器配置结构
+  server_config:                               # MCP服务器配置 (必填)
+    name:                                     # 服务器名称 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "MCP服务器名称"            # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"   # 命名规则 (可选)
+        
+    url:                                      # 服务器地址 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "MCP服务器地址"            # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^https?://.*$"             # URL格式验证 (可选)
+        
+    protocol:                                 # 协议类型 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: "sse"                          # 默认值 (可选)
+      description: "通信协议类型"             # 描述 (可选)
+      enum:                                   # 枚举值 (必填)
+        - "sse"                              # Server-Sent Events
+        - "stdio"                            # 标准输入输出
+        - "websocket"                        # WebSocket
+        
+    timeout:                                  # 连接超时 (可选)
+      type: "integer"                         # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: 30                             # 默认值 (可选)
+      description: "连接超时时间(秒)"         # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min: 1                               # 最小值 (可选)
+        max: 120                             # 最大值 (可选)
+        
+    retry_count:                              # 重试次数 (可选)
+      type: "integer"                         # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: 3                              # 默认值 (可选)
+      description: "连接重试次数"             # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min: 0                               # 最小值 (可选)
+        max: 10                              # 最大值 (可选)
+
+
+# =================================================================
+# 工具配置标准 (Tool Configuration Schema)
+# =================================================================
+tool_schema:
+  # 工具基础配置结构
+  tool_config:                                 # 工具配置 (必填)
+    name:                                     # 工具名称 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "工具名称"                 # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"   # 命名规则 (可选)
+        
+    description:                              # 工具描述 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "工具功能描述"             # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        max_length: 200                      # 最大长度 (可选)
+        
+    type:                                     # 工具类型 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "工具类型"                 # 描述 (可选)
+      enum:                                   # 枚举值 (必填)
+        - "builtin"                          # 内置工具
+        - "custom"                           # 自定义工具
+        - "api"                              # API工具
+        - "function"                         # 函数工具
+        
+    config:                                   # 工具配置 (可选)
+      type: "object"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "工具特定配置"             # 描述 (可选)
+      
+    timeout:                                  # 执行超时 (可选)
+      type: "integer"                         # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: 60                             # 默认值 (可选)
+      description: "工具执行超时时间(秒)"     # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min: 1                               # 最小值 (可选)
+        max: 300                             # 最大值 (可选)
+
+# =================================================================
+# 节点配置标准 (Node Configuration Schema)
+# =================================================================
+node_schema:
+  # 节点基础结构
+  base_structure:                              # 节点基础结构 (必填)
+    name:                                     # 节点名称 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "节点唯一标识名称"         # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"   # 命名规则 (可选)
+        min_length: 3                        # 最小长度 (可选)
+        max_length: 50                       # 最大长度 (可选)
+        
+    type:                                     # 节点类型 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "节点类型"                 # 描述 (可选)
+      enum:                                   # 枚举值 (必填)
+        - "start"                            # 开始节点
+        - "end"                              # 结束节点
+        - "agent"                            # Agent节点
+        - "condition"                        # 条件节点
+        - "loop"                             # 循环节点
+        - "tool"                             # 工具节点
+        
+    description:                              # 节点描述 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "节点功能描述"             # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        max_length: 200                      # 最大长度 (可选)
+        
+    agent_ref:                                # Agent引用 (Agent类型节点必填)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (当type为agent时必填)
+      description: "引用agents配置段中的Agent名称" # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"   # 命名规则 (可选)
+        
+    position:                                 # 节点位置 (可选)
+      type: "object"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "节点在画布中的位置"       # 描述 (可选)
+      properties:                             # 对象属性 (必填)
+        x:                                   # X坐标 (必填)
+          type: "number"                     # 数据类型 (必填)
+          required: true                     # 是否必需 (必填)
+        y:                                   # Y坐标 (必填)
+          type: "number"                     # 数据类型 (必填)
+          required: true                     # 是否必需 (必填)
+          
+    inputs:                                   # 节点输入 (可选)
+      type: "array"                           # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "节点输入定义"             # 描述 (可选)
+      items:                                  # 数组项定义 (必填)
+        type: "object"                        # 数组项类型 (必填)
+        schema: "io_schema.input_config"      # 引用输入配置模式 (必填)
+        
+    outputs:                                  # 节点输出 (可选)
+      type: "array"                           # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "节点输出定义"             # 描述 (可选)
+      items:                                  # 数组项定义 (必填)
+        type: "object"                        # 数组项类型 (必填)
+        schema: "io_schema.output_config"     # 引用输出配置模式 (必填)
+        
+    config:                                   # 节点配置 (可选)
+      type: "object"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "节点特定配置"             # 描述 (可选)
+
+# =================================================================
+# 边配置标准 (Edge Configuration Schema)
+# =================================================================
+edge_schema:
+  # 边基础结构
+  base_structure:                              # 边基础结构 (必填)
+    from:                                     # 源节点 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "源节点名称"               # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"   # 命名规则 (可选)
+        
+    to:                                       # 目标节点 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "目标节点名称"             # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"   # 命名规则 (可选)
+        
+    condition:                                # 连接条件 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "边的执行条件表达式"       # 描述 (可选)
+      
+    description:                              # 边描述 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "边的功能描述"             # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        max_length: 100                      # 最大长度 (可选)
+        
+    weight:                                   # 边权重 (可选)
+      type: "number"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: 1.0                            # 默认值 (可选)
+      description: "边的权重或优先级"         # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min: 0.0                             # 最小值 (可选)
+        max: 10.0                            # 最大值 (可选)
+
+# =================================================================
+# 输入输出配置标准 (Input/Output Configuration Schema)
+# =================================================================
+io_schema:
+  # 输入配置结构
+  input_config:                                # 输入配置 (必填)
+    name:                                     # 输入名称 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "输入参数名称"             # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"   # 命名规则 (可选)
+    
+    thread_id:                                  # 线程ID (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "线程ID"                   # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z0-9]{32}$"         # 命名规则 (可选)
+        
+    type:                                     # 输入类型 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "输入数据类型"             # 描述 (可选)
+      enum:                                   # 枚举值 (必填)
+        - "string"                           # 字符串
+        - "number"                           # 数字
+        - "integer"                          # 整数
+        - "boolean"                          # 布尔值
+        - "object"                           # 对象
+        - "array"                            # 数组
+        - "file"                             # 文件
+        - "binary"                           # 二进制
+        
+    required:                                 # 是否必需 (必填)
+      type: "boolean"                         # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "是否为必需参数"           # 描述 (可选)
+      
+    source:                                   # 数据来源 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "数据来源: 节点名.输出名"  # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_]*\\.[a-zA-Z][a-zA-Z0-9_]*$"  # 来源格式 (可选)
+        
+    default:                                  # 默认值 (可选)
+      type: "any"                             # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "默认值"                   # 描述 (可选)
+      
+    description:                              # 输入描述 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "输入参数描述"             # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        max_length: 200                      # 最大长度 (可选)
+        
+    validation:                               # 验证规则 (可选)
+      type: "object"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "输入验证规则"             # 描述 (可选)
+      
+  # 输出配置结构
+  output_config:                               # 输出配置 (必填)
+    name:                                     # 输出名称 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "输出参数名称"             # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"   # 命名规则 (可选)
+        
+    type:                                     # 输出类型 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "输出数据类型"             # 描述 (可选)
+      enum:                                   # 枚举值 (必填)
+        - "string"                           # 字符串
+        - "number"                           # 数字
+        - "integer"                          # 整数
+        - "boolean"                          # 布尔值
+        - "object"                           # 对象
+        - "array"                            # 数组
+        - "file"                             # 文件
+        - "binary"                           # 二进制
+        
+    description:                              # 输出描述 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "输出参数描述"             # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        max_length: 200                      # 最大长度 (可选)
+
+# =================================================================
+# 循环配置标准 (Loop Configuration Schema)
+# =================================================================
+loop_schema:
+  # 循环基础配置
+  base_config:                                 # 循环基础配置 (必填)
+    type:                                     # 循环类型 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "循环类型"                 # 描述 (可选)
+      enum:                                   # 枚举值 (必填)
+        - "while"                            # while循环
+        - "for"                              # for循环
+        - "foreach"                          # foreach循环
+        - "until"                            # until循环
+        
+    condition:                                # 循环条件 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "循环条件表达式"           # 描述 (可选)
+      
+    max_iterations:                           # 最大迭代次数 (可选)
+      type: "integer"                         # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: 100                            # 默认值 (可选)
+      description: "最大迭代次数"             # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min: 1                               # 最小值 (可选)
+        max: 10000                           # 最大值 (可选)
+        
+    timeout:                                  # 循环超时 (可选)
+      type: "integer"                         # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: 300                            # 默认值 (可选)
+      description: "循环超时时间(秒)"         # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min: 1                               # 最小值 (可选)
+        max: 3600                            # 最大值 (可选)
+        
+    body:                                     # 循环体 (必填)
+      type: "array"                           # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "循环体节点列表"           # 描述 (可选)
+      items:                                  # 数组项定义 (必填)
+        type: "object"                        # 数组项类型 (必填)
+        schema: "node_schema.base_structure"  # 引用节点配置模式 (必填)
+        
+    init:                                     # 初始化 (可选)
+      type: "array"                           # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "循环初始化变量"           # 描述 (可选)
+      
+    update:                                   # 更新操作 (可选)
+      type: "array"                           # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "循环变量更新操作"         # 描述 (可选)
+
+# =================================================================
+# 记忆存储配置标准 (Memory Storage Configuration Schema)
+# =================================================================
+memory_schema:
+  # 记忆存储基础配置
+  base_config:                                 # 记忆存储基础配置 (必填)
+    enabled:                                  # 是否启用 (可选)
+      type: "boolean"                         # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: true                           # 默认值 (可选)
+      description: "是否启用记忆存储"         # 描述 (可选)
+      
+    provider:                                 # 存储提供商 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "记忆存储提供商"           # 描述 (可选)
+      enum:                                   # 枚举值 (必填)
+        - "memory"                           # 内存存储
+        - "redis"                            # Redis存储
+        - "postgresql"                       # PostgreSQL存储
+        - "mongodb"                          # MongoDB存储
+        - "sqlite"                           # SQLite存储
+        - "mysql"                            # MySQL存储
+        - "elasticsearch"                    # Elasticsearch存储
+        - "custom"                           # 自定义存储
+        
+    ttl:                                      # 默认过期时间 (可选)
+      type: "integer"                         # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: 3600                           # 默认值(秒) (可选)
+      description: "默认记忆过期时间(秒)"     # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        min: 60                              # 最小值(1分钟) (可选)
+        max: 2592000                         # 最大值(30天) (可选)
+        
+    max_size:                                 # 最大存储大小 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      default: "100MB"                        # 默认值 (可选)
+      description: "最大存储大小限制"         # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^\\d+[KMGT]?B$"            # 大小格式验证 (可选)
+        
+    connection:                               # 连接配置 (可选)
+      type: "object"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "存储连接配置"             # 描述 (可选)
+      properties:                             # 对象属性 (必填)
+        host:                                # 主机地址 (可选)
+          type: "string"                     # 数据类型 (必填)
+          default: "localhost"               # 默认值 (可选)
+          description: "存储服务主机地址"     # 描述 (可选)
+          
+        port:                                # 端口号 (可选)
+          type: "integer"                    # 数据类型 (必填)
+          description: "存储服务端口号"       # 描述 (可选)
+          validation:                        # 验证规则 (可选)
+            min: 1                          # 最小值 (可选)
+            max: 65535                      # 最大值 (可选)
+            
+        database:                            # 数据库 (可选)
+          type: "string"                     # 数据类型 (必填)
+          description: "数据库名称或编号"     # 描述 (可选)
+          
+        username:                            # 用户名 (可选)
+          type: "string"                     # 数据类型 (必填)
+          description: "连接用户名"           # 描述 (可选)
+          
+        password:                            # 密码 (可选)
+          type: "string"                     # 数据类型 (必填)
+          sensitive: true                    # 敏感信息标记 (可选)
+          description: "连接密码"             # 描述 (可选)
+          
+        pool_size:                           # 连接池大小 (可选)
+          type: "integer"                    # 数据类型 (必填)
+          default: 10                        # 默认值 (可选)
+          description: "连接池大小"           # 描述 (可选)
+          validation:                        # 验证规则 (可选)
+            min: 1                          # 最小值 (可选)
+            max: 100                        # 最大值 (可选)
+            
+        ssl:                                 # SSL配置 (可选)
+          type: "boolean"                    # 数据类型 (必填)
+          default: false                     # 默认值 (可选)
+          description: "是否启用SSL连接"     # 描述 (可选)
+          
+        timeout:                             # 连接超时 (可选)
+          type: "integer"                    # 数据类型 (必填)
+          default: 30                        # 默认值(秒) (可选)
+          description: "连接超时时间(秒)"     # 描述 (可选)
+          validation:                        # 验证规则 (可选)
+            min: 1                          # 最小值 (可选)
+            max: 300                        # 最大值 (可选)
+            
+    # 记忆类型配置
+    memory_types:                             # 记忆类型配置 (可选)
+      type: "object"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "不同类型记忆的配置"       # 描述 (可选)
+      properties:                             # 对象属性 (必填)
+        conversation:                        # 对话记忆 (可选)
+          type: "object"                     # 数据类型 (必填)
+          properties:                        # 对象属性 (必填)
+            enabled:                         # 是否启用 (可选)
+              type: "boolean"                # 数据类型 (必填)
+              default: true                  # 默认值 (可选)
+            ttl:                             # 过期时间 (可选)
+              type: "integer"                # 数据类型 (必填)
+              default: 7200                  # 默认值(2小时) (可选)
+            max_messages:                    # 最大消息数 (可选)
+              type: "integer"                # 数据类型 (必填)
+              default: 100                   # 默认值 (可选)
+              
+        workflow_state:                      # 工作流状态记忆 (可选)
+          type: "object"                     # 数据类型 (必填)
+          properties:                        # 对象属性 (必填)
+            enabled:                         # 是否启用 (可选)
+              type: "boolean"                # 数据类型 (必填)
+              default: true                  # 默认值 (可选)
+            ttl:                             # 过期时间 (可选)
+              type: "integer"                # 数据类型 (必填)
+              default: 3600                  # 默认值(1小时) (可选)
+            checkpoint_interval:             # 检查点间隔 (可选)
+              type: "integer"                # 数据类型 (必填)
+              default: 60                    # 默认值(秒) (可选)
+              
+        agent_context:                       # Agent上下文记忆 (可选)
+          type: "object"                     # 数据类型 (必填)
+          properties:                        # 对象属性 (必填)
+            enabled:                         # 是否启用 (可选)
+              type: "boolean"                # 数据类型 (必填)
+              default: true                  # 默认值 (可选)
+            ttl:                             # 过期时间 (可选)
+              type: "integer"                # 数据类型 (必填)
+              default: 1800                  # 默认值(30分钟) (可选)
+            max_context_size:                # 最大上下文大小 (可选)
+              type: "integer"                # 数据类型 (必填)
+              default: 4096                  # 默认值(tokens) (可选)
+              
+        tool_cache:                          # 工具缓存记忆 (可选)
+          type: "object"                     # 数据类型 (必填)
+          properties:                        # 对象属性 (必填)
+            enabled:                         # 是否启用 (可选)
+              type: "boolean"                # 数据类型 (必填)
+              default: true                  # 默认值 (可选)
+            ttl:                             # 过期时间 (可选)
+              type: "integer"                # 数据类型 (必填)
+              default: 900                   # 默认值(15分钟) (可选)
+            max_cache_size:                  # 最大缓存大小 (可选)
+              type: "string"                 # 数据类型 (必填)
+              default: "50MB"                # 默认值 (可选)
+              
+        knowledge_cache:                     # 知识缓存记忆 (可选)
+          type: "object"                     # 数据类型 (必填)
+          properties:                        # 对象属性 (必填)
+            enabled:                         # 是否启用 (可选)
+              type: "boolean"                # 数据类型 (必填)
+              default: true                  # 默认值 (可选)
+            ttl:                             # 过期时间 (可选)
+              type: "integer"                # 数据类型 (必填)
+              default: 86400                 # 默认值(24小时) (可选)
+            max_entries:                     # 最大条目数 (可选)
+              type: "integer"                # 数据类型 (必填)
+              default: 1000                  # 默认值 (可选)
+    
+    # 清理策略配置
+    cleanup:                                  # 清理策略 (可选)
+      type: "object"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "记忆清理策略配置"         # 描述 (可选)
+      properties:                             # 对象属性 (必填)
+        enabled:                             # 是否启用清理 (可选)
+          type: "boolean"                    # 数据类型 (必填)
+          default: true                      # 默认值 (可选)
+          
+        strategy:                            # 清理策略 (可选)
+          type: "string"                     # 数据类型 (必填)
+          default: "lru"                     # 默认值 (可选)
+          description: "清理策略类型"         # 描述 (可选)
+          enum:                              # 枚举值 (必填)
+            - "lru"                          # 最近最少使用
+            - "lfu"                          # 最不经常使用
+            - "ttl"                          # 基于过期时间
+            - "size"                         # 基于大小限制
+            - "custom"                       # 自定义策略
+            
+        interval:                            # 清理间隔 (可选)
+          type: "integer"                    # 数据类型 (必填)
+          default: 3600                      # 默认值(秒) (可选)
+          description: "清理执行间隔(秒)"     # 描述 (可选)
+          validation:                        # 验证规则 (可选)
+            min: 60                          # 最小值 (可选)
+            max: 86400                       # 最大值 (可选)
+            
+        batch_size:                          # 批次大小 (可选)
+          type: "integer"                    # 数据类型 (必填)
+          default: 100                       # 默认值 (可选)
+          description: "单次清理批次大小"     # 描述 (可选)
+          validation:                        # 验证规则 (可选)
+            min: 1                           # 最小值 (可选)
+            max: 1000                        # 最大值 (可选)
+
+# =================================================================
+# 工作流配置标准 (Workflow Configuration Schema)
+# =================================================================
+workflow_schema:
+  # 工作流基础配置
+  base_config:                                 # 工作流基础配置 (必填)
+    name:                                     # 工作流名称 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "工作流名称"               # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^[a-zA-Z][a-zA-Z0-9_\\-\\s]*$"  # 命名规则 (可选)
+        min_length: 3                        # 最小长度 (可选)
+        max_length: 100                      # 最大长度 (可选)
+        
+    version:                                  # 版本号 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "工作流版本"               # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        pattern: "^\\d+\\.\\d+\\.\\d+$"      # 版本格式 (可选)
+        
+    description:                              # 工作流描述 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "工作流功能描述"           # 描述 (可选)
+      validation:                             # 验证规则 (可选)
+        max_length: 1000                     # 最大长度 (可选)
+        
+    author:                                   # 作者 (可选)
+      type: "string"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "工作流作者"               # 描述 (可选)
+      
+    schema_version:                           # 模式版本 (必填)
+      type: "string"                          # 数据类型 (必填)
+      required: true                          # 是否必需 (必填)
+      description: "配置模式版本"             # 描述 (可选)
+      
+    settings:                                 # 工作流设置 (可选)
+      type: "object"                          # 数据类型 (必填)
+      required: false                         # 是否必需 (必填)
+      description: "工作流级别设置"           # 描述 (可选)
+      schema: "global_config.runtime"         # 引用运行时配置 (可选)
+
+# =================================================================
+# 协议使用说明
+# =================================================================
+usage_notes: |
+  此协议标准定义了 KaFlow-Py 框架的所有配置格式规范。
+  
+  使用方式：
+  1. kaflow.yaml.template - 定义基础协议格式标准包含 agent 、node 、edge 、global_config 、workflow_schema 、memory_schema 等基础配置 
+  2. chat_agent.yaml.template - 定义具体的 Chat Agent 单 Agent 模版
+  3. multi_agent.yaml.template - 定义具体的 Multi Agent 多 Agent模版
+  4. multi_loop_agent.yaml.template - 定义具体的 Multi Loop Agent 多 Loop Agent模版(内部可循环的 agent)
+  
+  特点：
+  - 轻量级类似 n8n 和 Dify 的低代码设计理念
+  - 支持类型验证和格式校验
+  - 模块化设计，便于扩展
+  - 标准化的错误处理和监控
+  - 支持复杂的循环和条件控制流
+  - 支持多种记忆存储后端(Redis、SQL、MongoDB等)

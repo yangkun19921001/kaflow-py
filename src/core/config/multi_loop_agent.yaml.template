@@ -1,0 +1,805 @@
+# =================================================================
+# KaFlow-Py 多Agent子任务循环执行模版
+# 基于 KaFlow-Py 协议标准的子任务循环执行+MCP工具调用配置
+# =================================================================
+
+# =================================================================
+# 协议版本与元信息
+# =================================================================
+protocol:
+  name: "KaFlow-Py Multi-Agent SubTask Loop Template"
+  version: "1.0.0"
+  schema_version: "2025.09.10"
+  description: "基于 KaFlow-Py 的多Agent子任务循环执行模版"
+  author: "DevYK"
+  license: "MIT"
+
+# =================================================================
+# 全局配置
+# =================================================================
+global_config:
+  runtime:
+    timeout: 2400  # 40分钟
+    max_retries: 3
+    parallel_limit: 1  # 线性执行子任务
+    debug_mode: false
+    trace_enabled: true
+    checkpoint_enabled: true
+
+  logging:
+    level: "INFO"
+    format: "json"
+    output: "file"
+    file_path: "./logs/subtask_loop_execution.log"
+    max_size: "200MB"
+    max_files: 10
+
+  memory:
+    enabled: true
+    provider: "sqlite"
+    ttl: 14400  # 4小时
+    max_size: "500MB"
+    connection:
+      host: "localhost"
+      database: "subtask_execution_memory.db"
+
+# =================================================================
+# LLM 配置
+# =================================================================
+llm_config:
+  base_url: "https://api.openai.com/v1"
+  api_key: "${OPENAI_API_KEY}"
+  model: "gpt-4o-mini"
+  temperature: 0.3
+  max_tokens: 4096
+  timeout: 60
+
+# =================================================================
+# 子任务循环控制配置
+# =================================================================
+subtask_loop_control:
+  max_retry_per_task: 3        # 每个子任务最大重试次数
+  max_total_tasks: 20          # 最大总任务数量
+  task_timeout: 300            # 单个任务超时时间（秒）
+  error_recovery_enabled: true # 启用错误恢复机制
+  continue_on_failure: false   # 子任务失败后是否继续执行后续任务
+
+# =================================================================
+# 工作流配置
+# =================================================================
+workflow:
+  name: "子任务循环执行工作流"
+  version: "1.0.0"
+  description: "用户输入 → 任务规划 → 子任务循环执行（ReAct Agent + MCP工具 + 错误重试）"
+  author: "DevYK"
+  schema_version: "2025.09.10"
+  
+  settings:
+    timeout: 2400
+    max_retries: 3
+    debug_mode: false
+
+  # =================================================================
+  # 节点定义
+  # =================================================================
+  nodes:
+    - name: "start_node"
+      type: "start"
+      description: "子任务循环执行工作流开始节点"
+      position:
+        x: 100
+        y: 300
+      outputs:
+        - name: "user_input"
+          type: "string"
+          description: "用户输入信息"
+        - name: "execution_requirements"
+          type: "object"
+          description: "执行要求和参数"
+        - name: "priority_level"
+          type: "string"
+          description: "优先级等级"
+          default: "normal"
+
+    - name: "task_planner"
+      type: "react_agent"
+      description: "任务规划ReAct Agent - 深度分析并规划子任务"
+      agent_ref: "task_planner"
+      position:
+        x: 300
+        y: 300
+      
+      inputs:
+        - name: "user_input"
+          type: "string"
+          required: true
+          source: "start_node.user_input"
+        - name: "execution_requirements"
+          type: "object"
+          required: false
+          source: "start_node.execution_requirements"
+        - name: "priority_level"
+          type: "string"
+          required: false
+          source: "start_node.priority_level"
+      
+      outputs:
+        - name: "task_breakdown"
+          type: "array"
+          description: "详细的子任务分解列表"
+        - name: "execution_plan"
+          type: "object"
+          description: "整体执行计划"
+        - name: "mcp_requirements"
+          type: "object"
+          description: "MCP工具需求分析"
+        - name: "task_dependencies"
+          type: "object"
+          description: "任务依赖关系"
+
+    - name: "task_iterator"
+      type: "tool"
+      description: "任务迭代器 - 管理子任务队列和状态"
+      position:
+        x: 500
+        y: 300
+      config:
+        tool_name: "task_queue_manager"
+        operation: "initialize_and_iterate"
+      
+      inputs:
+        - name: "task_breakdown"
+          type: "array"
+          required: true
+          source: "task_planner.task_breakdown"
+        - name: "execution_plan"
+          type: "object"
+          required: true
+          source: "task_planner.execution_plan"
+      
+      outputs:
+        - name: "current_task"
+          type: "object"
+          description: "当前待执行的子任务"
+        - name: "task_context"
+          type: "object"
+          description: "任务上下文信息"
+        - name: "remaining_tasks"
+          type: "array"
+          description: "剩余任务列表"
+        - name: "has_more_tasks"
+          type: "boolean"
+          description: "是否还有更多任务"
+
+    # =================================================================
+    # 子任务执行循环开始
+    # =================================================================
+    - name: "subtask_executor"
+      type: "react_agent"
+      description: "子任务执行ReAct Agent - 执行单个子任务"
+      agent_ref: "subtask_executor"
+      position:
+        x: 700
+        y: 300
+      
+      inputs:
+        - name: "current_task"
+          type: "object"
+          required: true
+          source: "task_iterator.current_task"
+        - name: "task_context"
+          type: "object"
+          required: true
+          source: "task_iterator.task_context"
+        - name: "mcp_requirements"
+          type: "object"
+          required: true
+          source: "task_planner.mcp_requirements"
+        - name: "retry_count"
+          type: "integer"
+          required: false
+          default: 0
+          description: "当前重试次数"
+        - name: "previous_error"
+          type: "object"
+          required: false
+          description: "上次执行的错误信息"
+      
+      outputs:
+        - name: "task_result"
+          type: "object"
+          description: "任务执行结果"
+        - name: "execution_status"
+          type: "string"
+          description: "执行状态：success/failed/retry_needed"
+        - name: "error_info"
+          type: "object"
+          description: "错误信息（如果失败）"
+        - name: "mcp_call_logs"
+          type: "array"
+          description: "MCP调用日志"
+        - name: "next_action"
+          type: "string"
+          description: "下一步动作：continue/retry/abort"
+
+    - name: "error_analyzer"
+      type: "condition"
+      description: "错误分析和重试决策节点"
+      position:
+        x: 900
+        y: 200
+      condition: |
+        # Python代码：错误分析和重试决策
+        def analyze_error_and_decide_retry(
+            execution_status, error_info, retry_count, 
+            max_retry_per_task=3, previous_error=None
+        ):
+            # 如果执行成功，直接继续
+            if execution_status == "success":
+                return {
+                    'should_retry': False,
+                    'should_continue': True,
+                    'retry_strategy': None,
+                    'error_analysis': None
+                }
+            
+            # 如果执行失败，分析是否需要重试
+            if execution_status == "failed":
+                # 检查重试次数
+                if retry_count >= max_retry_per_task:
+                    return {
+                        'should_retry': False,
+                        'should_continue': False,
+                        'retry_strategy': None,
+                        'error_analysis': f"达到最大重试次数 {max_retry_per_task}，任务终止"
+                    }
+                
+                # 分析错误类型
+                error_type = error_info.get('type', 'unknown') if error_info else 'unknown'
+                error_message = error_info.get('message', '') if error_info else ''
+                
+                # 可重试的错误类型
+                retryable_errors = [
+                    'network_timeout', 'connection_error', 'rate_limit',
+                    'temporary_failure', 'mcp_server_busy', 'resource_unavailable'
+                ]
+                
+                # 不可重试的错误类型
+                non_retryable_errors = [
+                    'authentication_failed', 'permission_denied', 'invalid_parameters',
+                    'resource_not_found', 'syntax_error', 'configuration_error'
+                ]
+                
+                if error_type in non_retryable_errors:
+                    return {
+                        'should_retry': False,
+                        'should_continue': False,
+                        'retry_strategy': None,
+                        'error_analysis': f"不可重试的错误类型: {error_type}"
+                    }
+                
+                if error_type in retryable_errors or error_type == 'unknown':
+                    # 制定重试策略
+                    retry_strategy = {
+                        'delay': min(2 ** retry_count, 30),  # 指数退避，最大30秒
+                        'modify_parameters': error_type in ['rate_limit', 'resource_unavailable'],
+                        'change_approach': retry_count >= 2  # 第3次重试时改变方法
+                    }
+                    
+                    return {
+                        'should_retry': True,
+                        'should_continue': False,
+                        'retry_strategy': retry_strategy,
+                        'error_analysis': f"可重试错误: {error_type}, 第{retry_count + 1}次重试"
+                    }
+            
+            # 默认情况
+            return {
+                'should_retry': False,
+                'should_continue': True,
+                'retry_strategy': None,
+                'error_analysis': None
+            }
+      
+      inputs:
+        - name: "execution_status"
+          type: "string"
+          required: true
+          source: "subtask_executor.execution_status"
+        - name: "error_info"
+          type: "object"
+          required: false
+          source: "subtask_executor.error_info"
+        - name: "retry_count"
+          type: "integer"
+          required: true
+          description: "当前重试次数"
+        - name: "previous_error"
+          type: "object"
+          required: false
+          description: "上次错误信息"
+      
+      outputs:
+        - name: "should_retry"
+          type: "boolean"
+          description: "是否应该重试"
+        - name: "should_continue"
+          type: "boolean"
+          description: "是否继续执行后续任务"
+        - name: "retry_strategy"
+          type: "object"
+          description: "重试策略"
+        - name: "error_analysis"
+          type: "string"
+          description: "错误分析结果"
+
+    - name: "retry_counter"
+      type: "tool"
+      description: "重试计数器工具"
+      position:
+        x: 1100
+        y: 200
+      config:
+        tool_name: "counter"
+        operation: "increment"
+      
+      inputs:
+        - name: "current_count"
+          type: "integer"
+          required: true
+          description: "当前重试计数"
+      
+      outputs:
+        - name: "updated_count"
+          type: "integer"
+          description: "更新后的重试计数"
+
+    - name: "task_progress_tracker"
+      type: "tool"
+      description: "任务进度跟踪器"
+      position:
+        x: 900
+        y: 400
+      config:
+        tool_name: "progress_tracker"
+        operation: "update_and_next"
+      
+      inputs:
+        - name: "current_task"
+          type: "object"
+          required: true
+          source: "task_iterator.current_task"
+        - name: "task_result"
+          type: "object"
+          required: true
+          source: "subtask_executor.task_result"
+        - name: "execution_status"
+          type: "string"
+          required: true
+          source: "subtask_executor.execution_status"
+        - name: "remaining_tasks"
+          type: "array"
+          required: true
+          source: "task_iterator.remaining_tasks"
+      
+      outputs:
+        - name: "updated_progress"
+          type: "object"
+          description: "更新后的进度信息"
+        - name: "next_task"
+          type: "object"
+          description: "下一个任务"
+        - name: "all_results"
+          type: "array"
+          description: "所有任务结果"
+        - name: "has_next_task"
+          type: "boolean"
+          description: "是否还有下一个任务"
+
+    - name: "completion_checker"
+      type: "condition"
+      description: "完成检查节点"
+      position:
+        x: 1100
+        y: 400
+      condition: |
+        # Python代码：检查是否所有任务都已完成
+        def check_completion(has_next_task, should_continue):
+            return not has_next_task or not should_continue
+      
+      inputs:
+        - name: "has_next_task"
+          type: "boolean"
+          required: true
+          source: "task_progress_tracker.has_next_task"
+        - name: "should_continue"
+          type: "boolean"
+          required: true
+          source: "error_analyzer.should_continue"
+      
+      outputs:
+        - name: "is_completed"
+          type: "boolean"
+          description: "是否已完成所有任务"
+
+    - name: "result_aggregator"
+      type: "agent"
+      description: "结果聚合Agent - 整合所有子任务结果"
+      agent_ref: "result_aggregator"
+      position:
+        x: 1300
+        y: 300
+      
+      inputs:
+        - name: "execution_plan"
+          type: "object"
+          required: true
+          source: "task_planner.execution_plan"
+        - name: "all_results"
+          type: "array"
+          required: true
+          source: "task_progress_tracker.all_results"
+        - name: "final_progress"
+          type: "object"
+          required: true
+          source: "task_progress_tracker.updated_progress"
+      
+      outputs:
+        - name: "final_summary"
+          type: "object"
+          description: "最终执行摘要"
+        - name: "success_tasks"
+          type: "array"
+          description: "成功执行的任务"
+        - name: "failed_tasks"
+          type: "array"
+          description: "失败的任务"
+        - name: "execution_metrics"
+          type: "object"
+          description: "执行指标"
+
+    - name: "end_node"
+      type: "end"
+      description: "子任务循环执行工作流结束节点"
+      position:
+        x: 1500
+        y: 300
+      inputs:
+        - name: "final_output"
+          type: "object"
+          required: true
+          source: "result_aggregator.final_summary"
+          description: "最终执行结果"
+
+  # =================================================================
+  # 边定义 (连接关系和循环控制)
+  # =================================================================
+  edges:
+    # 主流程
+    - from: "start_node"
+      to: "task_planner"
+      description: "启动任务规划"
+      
+    - from: "task_planner"
+      to: "task_iterator"
+      description: "初始化任务队列"
+      
+    - from: "task_iterator"
+      to: "subtask_executor"
+      description: "执行当前子任务"
+      
+    - from: "subtask_executor"
+      to: "error_analyzer"
+      description: "分析执行结果"
+      
+    # 重试循环边
+    - from: "error_analyzer"
+      to: "retry_counter"
+      description: "需要重试时更新计数器"
+      condition: "error_analyzer.should_retry == True"
+      
+    - from: "retry_counter"
+      to: "subtask_executor"
+      description: "重试执行子任务（携带错误信息和重试策略）"
+      condition: "error_analyzer.should_retry == True"
+      feedback_data:
+        - source: "error_analyzer.retry_strategy"
+          target: "subtask_executor.retry_strategy"
+        - source: "retry_counter.updated_count"
+          target: "subtask_executor.retry_count"
+        - source: "subtask_executor.error_info"
+          target: "subtask_executor.previous_error"
+      
+    # 任务进度控制边
+    - from: "error_analyzer"
+      to: "task_progress_tracker"
+      description: "任务成功或失败后更新进度"
+      condition: "error_analyzer.should_retry == False"
+      
+    - from: "task_progress_tracker"
+      to: "completion_checker"
+      description: "检查是否完成所有任务"
+      
+    # 任务循环边
+    - from: "completion_checker"
+      to: "task_iterator"
+      description: "继续执行下一个任务"
+      condition: "completion_checker.is_completed == False"
+      feedback_data:
+        - source: "task_progress_tracker.next_task"
+          target: "task_iterator.current_task"
+        - source: "task_progress_tracker.updated_progress"
+          target: "task_iterator.task_context"
+      
+    # 完成流程
+    - from: "completion_checker"
+      to: "result_aggregator"
+      description: "所有任务完成，聚合结果"
+      condition: "completion_checker.is_completed == True"
+      
+    - from: "result_aggregator"
+      to: "end_node"
+      description: "输出最终结果"
+
+# =================================================================
+# Agent 配置
+# =================================================================
+agents:
+  task_planner:
+    name: "task_planner"
+    type: "react_agent"
+    description: "任务规划ReAct专家Agent"
+    enabled: true
+    
+    system_prompt: |
+      你是一个专业的任务规划ReAct专家，专门负责将复杂的用户需求分解为可执行的子任务。
+      
+      **使用ReAct模式的原因**：任务规划需要深度分析、创造性思考和自我验证。
+      
+      **思考能力 (Think)**：
+      1. 深度分析用户输入，理解真正的需求和目标
+      2. 评估任务的复杂性、依赖关系和执行难度
+      3. 思考最优的任务分解策略和执行顺序
+      4. 预判可能遇到的问题和风险点
+      
+      **行动能力 (Act)**：
+      1. 将复杂需求分解为具体的、可执行的子任务
+      2. 为每个子任务定义清晰的输入、输出和成功标准
+      3. 设计任务间的依赖关系和数据传递方式
+      4. 制定MCP工具调用策略和错误处理预案
+      
+      **观察能力 (Observe)**：
+      1. 检查任务分解的逻辑完整性和可执行性
+      2. 验证子任务是否能够达成总体目标
+      3. 评估资源需求和时间估算的合理性
+      4. 确认MCP工具需求分析的准确性
+      
+      **任务分解原则**：
+      - 每个子任务都应该是原子性的、可独立执行的
+      - 明确定义每个子任务需要调用的MCP工具
+      - 设计合理的错误处理和重试策略
+      - 考虑任务执行的优先级和依赖关系
+      
+      请基于ReAct模式深度思考，制定详细的任务执行计划。
+    
+    llm:
+      base_url: "https://api.openai.com/v1"
+      api_key: "${OPENAI_API_KEY}"
+      model: "gpt-4o-mini"
+      temperature: 0.3
+      max_tokens: 4096
+      timeout: 60
+    
+  subtask_executor:
+    name: "subtask_executor"
+    type: "react_agent"
+    description: "子任务执行ReAct专家Agent"
+    enabled: true
+    
+    system_prompt: |
+      你是一个专业的子任务执行ReAct专家，专门负责执行单个子任务并调用MCP工具。
+      
+      **使用ReAct模式的原因**：子任务执行需要智能决策、工具调用和错误处理。
+      
+      **思考能力 (Think)**：
+      1. 分析当前子任务的具体要求和成功标准
+      2. 评估需要调用的MCP工具和调用策略
+      3. 分析之前的错误信息（如果是重试），制定改进方案
+      4. 思考最优的执行路径和参数配置
+      
+      **行动能力 (Act)**：
+      1. 根据任务要求调用相应的MCP工具
+      2. 处理工具调用的输入参数和输出结果
+      3. 实现错误恢复和重试机制
+      4. 生成结构化的任务执行结果
+      
+      **观察能力 (Observe)**：
+      1. 监控MCP工具调用的执行状态和结果
+      2. 检查输出结果是否满足任务要求
+      3. 识别执行过程中的异常和错误
+      4. 评估是否需要调整策略或重试
+      
+      **MCP工具调用策略**：
+      - 严格按照MCP协议规范调用工具
+      - 实现完善的错误处理和异常捕获
+      - 记录详细的调用日志便于问题排查
+      - 支持参数动态调整和策略优化
+      
+      **错误处理原则**：
+      - 区分可重试和不可重试的错误类型
+      - 实现智能的重试策略（延迟、参数调整等）
+      - 提供详细的错误信息用于分析决策
+      - 在达到重试上限时优雅降级
+      
+      请基于ReAct模式智能执行子任务，确保高质量完成。
+    
+    llm:
+      base_url: "https://api.openai.com/v1"
+      api_key: "${OPENAI_API_KEY}"
+      model: "gpt-4o-mini"
+      temperature: 0.2
+      max_tokens: 4096
+      timeout: 60
+      
+    mcp_servers:
+      - name: "file_operations"
+        url: "http://localhost:8001/mcp"
+        protocol: "sse"
+        timeout: 30
+        retry_count: 3
+      - name: "web_scraping"
+        url: "http://localhost:8002/mcp"
+        protocol: "sse"
+        timeout: 60
+        retry_count: 3
+      - name: "database_operations"
+        url: "http://localhost:8003/mcp"
+        protocol: "sse"
+        timeout: 45
+        retry_count: 3
+      - name: "api_integration"
+        url: "http://localhost:8004/mcp"
+        protocol: "sse"
+        timeout: 30
+        retry_count: 3
+    
+  result_aggregator:
+    name: "result_aggregator"
+    type: "agent"
+    description: "结果聚合专家Agent"
+    enabled: true
+    
+    system_prompt: |
+      你是一个专业的结果聚合专家，负责整合所有子任务的执行结果。
+      
+      **使用普通Agent的原因**：结果聚合主要是数据整理和格式化工作，不需要复杂的推理。
+      
+      **核心任务**：
+      1. 收集和整理所有子任务的执行结果
+      2. 分析任务执行的成功率和失败原因
+      3. 生成详细的执行报告和指标统计
+      4. 提供清晰的执行摘要和后续建议
+      
+      **聚合内容**：
+      - 成功执行的任务列表和结果
+      - 失败的任务列表和错误分析
+      - 整体执行进度和时间统计
+      - MCP工具调用统计和性能分析
+      - 错误重试情况和恢复效果
+      
+      请确保生成完整、准确的执行总结报告。
+    
+    llm:
+      base_url: "https://api.openai.com/v1"
+      api_key: "${OPENAI_API_KEY}"
+      model: "gpt-4o-mini"
+      temperature: 0.1
+      max_tokens: 3072
+      timeout: 45
+
+# =================================================================
+# 记忆配置
+# =================================================================
+memory:
+  enabled: true
+  provider: "sqlite"
+  ttl: 14400
+  max_size: "500MB"
+  connection:
+    database: "subtask_execution_memory.db"
+  
+  memory_types:
+    workflow_state:
+      enabled: true
+      ttl: 14400
+      checkpoint_interval: 60
+    
+    task_execution_context:
+      enabled: true
+      ttl: 7200
+      max_context_size: 10240
+    
+    retry_history:
+      enabled: true
+      ttl: 3600
+      max_retry_records: 100
+    
+    mcp_call_logs:
+      enabled: true
+      ttl: 7200
+      max_log_entries: 500
+
+# =================================================================
+# 工具配置
+# =================================================================
+tools:
+  - name: "task_queue_manager"
+    type: "function"
+    description: "任务队列管理工具"
+    
+  - name: "counter"
+    type: "function"
+    description: "计数器工具"
+    
+  - name: "progress_tracker"
+    type: "function"
+    description: "进度跟踪工具"
+
+# =================================================================
+# 使用说明
+# =================================================================
+usage_notes: |
+  多Agent子任务循环执行模版使用说明：
+  
+  1. 功能特点：
+     - 智能任务分解：ReAct Agent深度分析用户需求
+     - 子任务循环执行：每个子任务独立执行，支持MCP工具调用
+     - 错误重试机制：智能错误分析和重试策略
+     - 进度追踪：实时监控任务执行进度和状态
+     - 结果聚合：完整的执行报告和指标统计
+  
+  2. 工作流程：
+     用户输入 → 任务规划 → 任务队列初始化 → 子任务循环执行 → 错误分析重试 → 进度更新 → 结果聚合
+  
+  3. 循环机制：
+     - 子任务级别循环：每个子任务最多重试3次
+     - 任务队列循环：按顺序执行所有子任务
+     - 错误恢复循环：基于错误类型的智能重试
+  
+  4. MCP工具集成：
+     - 支持多种MCP服务器连接
+     - 文件操作、网页抓取、数据库操作、API集成
+     - 完整的错误处理和重试机制
+     - 详细的调用日志和性能监控
+  
+  5. 错误处理策略：
+     - 可重试错误：网络超时、连接错误、限流等
+     - 不可重试错误：认证失败、权限不足、参数错误等
+     - 智能重试：指数退避、参数调整、策略优化
+     - 优雅降级：达到重试上限时的处理机制
+  
+  6. 环境变量：
+     - OPENAI_API_KEY: OpenAI API密钥
+     - MCP服务器需要单独启动和配置
+  
+  7. 启动方式：
+     python main.py --config config/multi_loop_agent.yaml
+  
+  8. 自定义配置：
+     - 修改 subtask_loop_control 调整循环参数
+     - 配置不同的MCP服务器和工具
+     - 自定义错误分析和重试策略
+     - 调整任务分解和执行策略
+  
+  9. 适用场景：
+     - 复杂的自动化任务执行
+     - 多步骤的数据处理流程
+     - 需要工具调用的批量操作
+     - 要求高可靠性的任务执行
+     
+  10. 性能特点：
+      - 支持最多20个子任务
+      - 每个子任务最多重试3次
+      - 单个任务超时5分钟
+      - 总体执行时间40分钟
+      - 完整的执行日志和指标统计
