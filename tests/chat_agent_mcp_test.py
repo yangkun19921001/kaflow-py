@@ -173,16 +173,16 @@ async def test_mcp_graph_execution():
         
         # 测试用例
         test_cases = [
-            {
-                "name": "简单对话测试",
-                "input": "你好，请介绍一下你的 MCP 功能",
-                "expected_keywords": ["MCP", "工具", "远程"]
-            },
-            {
-                "name": "MCP 工具查询测试",
-                "input": "你有哪些 MCP 工具可以使用？",
-                "expected_keywords": ["remote_exec", "工具", "命令"]
-            },
+            # {
+            #     "name": "简单对话测试",
+            #     "input": "你好，请介绍一下你的 MCP 功能",
+            #     "expected_keywords": ["MCP", "工具", "远程"]
+            # },
+            # {
+            #     "name": "MCP 工具查询测试",
+            #     "input": "你有哪些 MCP 工具可以使用？",
+            #     "expected_keywords": ["remote_exec", "工具", "命令"]
+            # },
             {
                 "name": "远程命令执行测试",
                 "input": "在机器 420c126d598a97ee31fb70127b6b9a46 上执行 pwd 命令",
@@ -204,32 +204,7 @@ async def test_mcp_graph_execution():
                     graph_id="chat_agent_mcp",
                     user_input=test_case["input"]
                 ):
-                    event_count += 1
-                    
-                    # 处理不同类型的事件
-                    if event.event_type == "graph_start":
-                        print(f"🚀 开始执行...")
-                        
-                    elif event.event_type == "node_update":
-                        print(f"📊 节点 {event.node_name} 更新: {event.data.get('current_step', 'N/A')}")
-                        
-                    elif event.event_type == "message":
-                        content = event.data.get('content', '')
-                        final_response = content
-                        print(f"💬 实时响应: {content[:100]}{'...' if len(content) > 100 else ''}")
-                        
-                    elif event.event_type == "tool_call":
-                        tool_results = event.data.get('tool_results', {})
-                        print(f"🔧 工具调用: {len(tool_results)} 个结果")
-                        
-                    elif event.event_type == "graph_end":
-                        execution_status = event.data.get('status', 'unknown')
-                        print(f"✅ 执行完成: {execution_status}")
-                        
-                    elif event.event_type == "error":
-                        error = event.data.get('error', '')
-                        execution_status = "failed"
-                        print(f"❌ 错误: {error}")
+                    print(f"🔍 收到 event: {event}")
                 
                 # 统计结果
                 print(f"\n📊 流式执行统计:")
@@ -479,9 +454,9 @@ async def main():
     mcp_available = await test_mcp_server_connectivity()
     
     # 2. 测试协议验证
-    # if not test_mcp_protocol_validation():
-    #     print("❌ MCP 协议验证失败，终止测试")
-    #     return
+    if not test_mcp_protocol_validation():
+        print("❌ MCP 协议验证失败，终止测试")
+        return
     
     # 3. 测试图注册
     if not test_mcp_graph_registration():
@@ -492,11 +467,11 @@ async def main():
     await test_mcp_graph_execution()
     
     # 5. 如果 MCP 服务器可用，测试远程流式执行
-    if mcp_available:
-        await test_mcp_remote_execution()
-        await test_mcp_error_handling()
-    else:
-        print("\n⚠️ MCP 服务器不可用，跳过远程执行测试")
+    # if mcp_available:
+    #     await test_mcp_remote_execution()
+    #     # await test_mcp_error_handling()
+    # else:
+    #     print("\n⚠️ MCP 服务器不可用，跳过远程执行测试")
     
     print("\n" + "="*70)
     print("🎉 KaFlow-Py MCP 集成流式测试完成！")

@@ -1,7 +1,8 @@
 """
-KaFlow-Py 图管理器
+KaFlow-Py 图管理器 - 优化版本
 
 统一管理 LangGraph 的构建、注册和执行
+支持高级流式处理，借鉴 agent-template 的优秀实践
 
 Author: DevYK
 WeChat: DevYK
@@ -16,6 +17,7 @@ from pathlib import Path
 from langgraph.graph.state import CompiledStateGraph
 
 from .auto_builder import LangGraphAutoBuilder, GraphExecutionResult, GraphStreamEvent
+from .stream_processor import StreamMessageProcessor
 from .node_factory import GraphState
 from .protocol_parser import ProtocolParser, ParsedProtocol
 from ...utils.logger import get_logger
@@ -74,7 +76,7 @@ class GraphRegistry:
 
 
 class GraphManager:
-    """图管理器"""
+    """图管理器 - 优化版本"""
     
     def __init__(self):
         self.logger = get_logger(__name__)
@@ -84,16 +86,7 @@ class GraphManager:
     def register_graph_from_file(self, 
                                  file_path: Union[str, Path], 
                                  graph_id: Optional[str] = None) -> str:
-        """
-        从文件注册图
-        
-        Args:
-            file_path: 协议文件路径
-            graph_id: 图ID（可选，默认使用文件名）
-            
-        Returns:
-            图ID
-        """
+        """从文件注册图"""
         file_path = Path(file_path)
         if not graph_id:
             graph_id = file_path.stem
@@ -127,16 +120,7 @@ class GraphManager:
     def register_graph_from_content(self, 
                                     content: str, 
                                     graph_id: str) -> str:
-        """
-        从内容注册图
-        
-        Args:
-            content: 协议内容
-            graph_id: 图ID
-            
-        Returns:
-            图ID
-        """
+        """从内容注册图"""
         self.logger.info(f"从内容注册图: {graph_id}")
         
         # 解析协议
@@ -238,13 +222,18 @@ class GraphManager:
     async def execute_graph_stream(self, 
                                   graph_id: str, 
                                   user_input: str,
+                                  thread_id: str = None,
                                   **kwargs):
         """
         流式执行图，返回实时流数据
         
+        借鉴 agent-template 的优秀实践，支持完整的消息类型处理
+        包括工具调用组装、消息块处理、错误处理等
+        
         Args:
             graph_id: 图ID
             user_input: 用户输入
+            thread_id: 线程ID（可选）
             **kwargs: 其他参数
             
         Yields:
@@ -275,154 +264,22 @@ class GraphManager:
             "node_outputs": {}
         }
         
-        try:
-            # 发送开始事件
-            yield GraphStreamEvent(
-                event_type="graph_start",
-                data={"graph_id": graph_id, "user_input": user_input}
-            )
-            
-            # 流式执行图
-            self.logger.debug("开始流式执行图（异步模式）")
-            
-            # 使用 astream 进行流式执行
-            async for chunk in compiled_graph.astream(initial_state):
-                self.logger.debug(f"收到流式数据块: {type(chunk)} - {repr(chunk)[:200]}...")
-                
-                # 处理不同格式的流式数据块
-                if isinstance(chunk, dict):
-                    # 标准字典格式
-                    for node_name, node_data in chunk.items():
-                        self.logger.debug(f"流式数据: 节点 {node_name}, 数据: {type(node_data)}")
-                        
-                        # 发送节点更新事件
-                        yield GraphStreamEvent(
-                            event_type="node_update",
-                            node_name=node_name,
-                            data={
-                                "node_data": self._serialize_node_data(node_data),
-                                "current_step": node_data.get("current_step", ""),
-                                "messages_count": len(node_data.get("messages", [])),
-                                "has_final_response": bool(node_data.get("final_response", ""))
-                            }
-                        )
-                        
-                        # 如果有最终响应，发送消息事件
-                        if node_data.get("final_response"):
-                            yield GraphStreamEvent(
-                                event_type="message",
-                                node_name=node_name,
-                                data={
-                                    "content": node_data["final_response"],
-                                    "message_type": "final_response"
-                                }
-                            )
-                        
-                        # 如果有工具调用结果，发送工具事件
-                        if node_data.get("tool_results"):
-                            yield GraphStreamEvent(
-                                event_type="tool_call",
-                                node_name=node_name,
-                                data={"tool_results": node_data["tool_results"]}
-                            )
-                        
-                elif isinstance(chunk, tuple):
-                    # 元组格式 (node_name, node_data)
-                    if len(chunk) == 2:
-                        node_name, node_data = chunk
-                        self.logger.debug(f"流式数据(tuple): 节点 {node_name}, 数据: {type(node_data)}")
-                        
-                        # 处理元组格式的数据（与字典格式相同的逻辑）
-                        yield GraphStreamEvent(
-                            event_type="node_update",
-                            node_name=node_name,
-                            data={
-                                "node_data": self._serialize_node_data(node_data),
-                                "current_step": node_data.get("current_step", "") if isinstance(node_data, dict) else "",
-                                "messages_count": len(node_data.get("messages", [])) if isinstance(node_data, dict) else 0,
-                                "has_final_response": bool(node_data.get("final_response", "")) if isinstance(node_data, dict) else False
-                            }
-                        )
-                        
-                        if isinstance(node_data, dict) and node_data.get("final_response"):
-                            yield GraphStreamEvent(
-                                event_type="message",
-                                node_name=node_name,
-                                data={
-                                    "content": node_data["final_response"],
-                                    "message_type": "final_response"
-                                }
-                            )
-                    else:
-                        self.logger.warning(f"未知的元组格式: {chunk}")
-                        
-                else:
-                    self.logger.warning(f"未知的流式数据格式: {type(chunk)} - {chunk}")
-            
-            # 发送完成事件
-            yield GraphStreamEvent(
-                event_type="graph_end",
-                data={"status": "completed", "graph_id": graph_id}
-            )
-            
-            self.logger.info(f"流式图执行完成: {graph_id}")
-            
-        except Exception as e:
-            self.logger.error(f"流式图执行失败: {graph_id}, 错误: {e}")
-            yield GraphStreamEvent(
-                event_type="error",
-                data={
-                    "error": str(e),
-                    "final_response": f"执行失败: {str(e)}",
-                    "context": kwargs
-                }
-            )
-    
-    def _serialize_node_data(self, node_data: Dict[str, Any]) -> Dict[str, Any]:
-        """序列化节点数据，处理不可序列化的对象"""
-        serialized = {}
+        # 创建流式消息处理器
+        processor = StreamMessageProcessor(graph_id, thread_id)
         
-        for key, value in node_data.items():
-            try:
-                if key == "messages":
-                    # 序列化消息列表
-                    serialized[key] = [str(msg) for msg in value] if value else []
-                elif isinstance(value, (str, int, float, bool, type(None))):
-                    serialized[key] = value
-                elif isinstance(value, (list, tuple)):
-                    serialized[key] = [str(item) for item in value]
-                elif isinstance(value, dict):
-                    serialized[key] = {k: str(v) for k, v in value.items()}
-                else:
-                    serialized[key] = str(value)
-            except Exception as e:
-                self.logger.debug(f"序列化节点数据时出错，键: {key}, 错误: {e}")
-                serialized[key] = f"<无法序列化: {type(value).__name__}>"
-        
-        return serialized
+        # 使用处理器处理流式数据
+        async for event in processor.process_astream(compiled_graph, initial_state):
+            yield event
     
     def get_graph_info(self, graph_id: str) -> Optional[Dict[str, Any]]:
-        """
-        获取图信息
-        
-        Args:
-            graph_id: 图ID
-            
-        Returns:
-            图信息
-        """
+        """获取图信息"""
         metadata = self.registry.get_metadata(graph_id)
         if metadata and "graph_info" in metadata:
             return metadata["graph_info"]
         return None
     
     def list_graphs(self) -> Dict[str, Dict[str, Any]]:
-        """
-        列出所有图
-        
-        Returns:
-            图列表信息
-        """
+        """列出所有图"""
         graphs_info = {}
         
         for graph_id in self.registry.list_graphs():
@@ -457,15 +314,7 @@ class GraphManager:
         return graphs_info
     
     def remove_graph(self, graph_id: str) -> bool:
-        """
-        移除图
-        
-        Args:
-            graph_id: 图ID
-            
-        Returns:
-            是否成功移除
-        """
+        """移除图"""
         self.logger.info(f"移除图: {graph_id}")
         success = self.registry.remove(graph_id)
         
@@ -482,15 +331,7 @@ class GraphManager:
         self.registry.clear()
     
     def validate_protocol_file(self, file_path: Union[str, Path]) -> List[str]:
-        """
-        验证协议文件
-        
-        Args:
-            file_path: 协议文件路径
-            
-        Returns:
-            验证错误列表（空列表表示验证通过）
-        """
+        """验证协议文件"""
         try:
             protocol = self.builder.parser.parse_from_file(file_path)
             return self.builder.parser.validate_protocol(protocol)
@@ -517,6 +358,6 @@ def get_graph_manager() -> GraphManager:
 
 __all__ = [
     "GraphRegistry",
-    "GraphManager",
+    "GraphManager", 
     "get_graph_manager"
 ] 
