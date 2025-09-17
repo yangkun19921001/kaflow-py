@@ -3,7 +3,7 @@ KaFlow-Py 日志记录模块
 
 提供统一的日志记录功能，支持多种输出格式和级别控制
 
-Author: DevYK
+Author: DevYK  
 WeChat: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
@@ -128,14 +128,36 @@ class KaFlowLogger:
     
     def _parse_size(self, size_str: str) -> int:
         """解析大小字符串为字节数"""
-        size_str = size_str.upper()
-        multipliers = {'B': 1, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3}
+        size_str = size_str.upper().strip()
+        multipliers = {'GB': 1024**3, 'MB': 1024**2, 'KB': 1024, 'B': 1}
         
+        # 先检查完整后缀
         for suffix, multiplier in multipliers.items():
             if size_str.endswith(suffix):
-                return int(size_str[:-len(suffix)]) * multiplier
+                number_part = size_str[:-len(suffix)].strip()
+                if number_part:
+                    try:
+                        return int(number_part) * multiplier
+                    except ValueError:
+                        continue
         
-        return int(size_str)  # 默认为字节
+        # 处理简写形式 (如 100M -> 100MB, 100K -> 100KB, 100G -> 100GB)
+        short_multipliers = {'G': 1024**3, 'M': 1024**2, 'K': 1024}
+        for suffix, multiplier in short_multipliers.items():
+            if size_str.endswith(suffix):
+                number_part = size_str[:-1].strip()
+                if number_part:
+                    try:
+                        return int(number_part) * multiplier
+                    except ValueError:
+                        continue
+        
+        # 默认为字节
+        try:
+            return int(size_str)
+        except ValueError:
+            # 如果无法解析，返回默认值 100MB
+            return 100 * 1024**2
     
     def _get_formatter(self) -> logging.Formatter:
         """获取格式化器"""

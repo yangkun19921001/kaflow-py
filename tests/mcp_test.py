@@ -59,7 +59,7 @@ async def test_sse_mcp_server():
             metadata = await client.get_server_metadata()
             print(f"✅ 服务器状态: {metadata.status}")
             print(f"✅ 可用工具数量: {len(metadata.tools)}")
-            
+        
             if metadata.tools:
                 print("\n🔧 可用工具:")
                 for i, tool in enumerate(metadata.tools, 1):
@@ -98,8 +98,8 @@ async def test_sse_mcp_server():
                                     arguments={
                                         "machineId": machine_id,
                                         "script": command
-                                    }
-                                )
+            }
+        )
                                 
                                 print(f"✅ 命令执行成功!")
                                 print(f"📤 执行结果:")
@@ -108,7 +108,7 @@ async def test_sse_mcp_server():
                                         print(f"   {key}: {value}")
                                 else:
                                     print(f"   {result}")
-                                    
+        
                             except Exception as e:
                                 print(f"❌ 命令执行失败: {str(e)}")
                                 # 即使执行失败，我们也展示了如何调用
