@@ -204,28 +204,10 @@ async def test_mcp_graph_execution():
                     graph_id="chat_agent_mcp",
                     user_input=test_case["input"]
                 ):
-                    print(f"🔍 收到 event: {event}")
+                    print(f"{event}")
                 
                 # 统计结果
-                print(f"\n📊 流式执行统计:")
-                print(f"   - 事件数量: {event_count}")
-                print(f"   - 执行状态: {execution_status}")
-                print(f"   - 响应长度: {len(final_response)} 字符")
-                
-                if execution_status == "completed" and final_response:
-                    print(f"✅ 流式执行成功")
-                    print(f"完整响应: {final_response[:300]}{'...' if len(final_response) > 300 else ''}")
-                    
-                    # 检查关键词
-                    keywords_found = 0
-                    for keyword in test_case['expected_keywords']:
-                        if keyword in final_response:
-                            keywords_found += 1
-                    
-                    print(f"🔍 关键词匹配: {keywords_found}/{len(test_case['expected_keywords'])}")
-                    
-                else:
-                    print(f"❌ 流式执行失败")
+                print(f"\n流式执行完成")
                     
             except Exception as e:
                 print(f"❌ 流式测试用例执行失败: {e}")

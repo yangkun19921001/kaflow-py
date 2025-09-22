@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 
+
 class NodeType(str, Enum):
     """节点类型枚举"""
     START = "start"                    # 开始节点
