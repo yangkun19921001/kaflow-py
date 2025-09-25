@@ -85,6 +85,7 @@ class WorkflowInfo(BaseModel):
 
 class ParsedProtocol(BaseModel):
     """解析后的协议"""
+    id: Optional[str] = None  # 添加配置ID字段
     protocol: ProtocolInfo
     global_config: Optional[GlobalConfig] = None
     llm_config: Optional[Dict[str, Any]] = None
@@ -208,6 +209,7 @@ class ProtocolParser:
         )
         
         return ParsedProtocol(
+            id=str(data.get('id')) if data.get('id') is not None else None,  # 提取ID并转换为字符串
             protocol=protocol,
             global_config=global_config,
             llm_config=llm_config,

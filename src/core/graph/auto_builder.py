@@ -213,6 +213,7 @@ class LangGraphAutoBuilder:
             edges_info.append(edge_info)
         
         return {
+            "id": protocol.id,  # 包含配置ID
             "protocol": {
                 "name": protocol.protocol.name,
                 "version": protocol.protocol.version,
