@@ -23,7 +23,7 @@ from langchain_core.messages import (
     AIMessage
 )
 
-from .auto_builder import GraphStreamEvent
+from .builder import GraphStreamEvent
 from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -257,10 +257,10 @@ class StreamMessageProcessor:
             str: SSE格式的事件字符串
         """
         # 发送开始事件
-        yield self._make_event("graph_start", {
-            "graph_id": self.graph_id, 
-            "thread_id": self.thread_id
-        })
+        # yield self._make_event("graph_start", {
+        #     "graph_id": self.graph_id, 
+        #     "thread_id": self.thread_id
+        # })
         
         try:
             # 完全复制app.py的astream处理逻辑
@@ -430,10 +430,10 @@ class StreamMessageProcessor:
                         yield self._make_event("message_chunk", event_stream_message)
 
             # 发送完成事件
-            yield self._make_event("graph_end", {
-                "status": "completed", 
-                "graph_id": self.graph_id
-            })
+            # yield self._make_event("graph_end", {
+            #     "status": "completed", 
+            #     "graph_id": self.graph_id
+            # })
             
         except Exception as e:
             self.logger.error(f"流式处理失败: {e}")

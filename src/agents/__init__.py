@@ -14,6 +14,8 @@ Github: https://github.com/yangkun19921001
 
 # 核心 Agent 创建函数
 from .agents import create_agent
+# Agent 管理器
+from .manager import AgentManager
 
 # Agent 配置
 from .config import (
@@ -23,8 +25,7 @@ from .config import (
     create_react_agent_config
 )
 
-# Agent 管理器
-from .manager import AgentManager
+
 
 # 异常处理
 from .exceptions import (
@@ -41,6 +42,7 @@ __all__ = [
     # 核心函数
     "create_agent",
     
+    
     # 配置
     "AgentConfig",
     "AgentType",
@@ -49,6 +51,8 @@ __all__ = [
     
     # 管理器
     "AgentManager",
+    
+    
     
     # 异常
     "AgentError",

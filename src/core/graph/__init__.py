@@ -10,7 +10,7 @@ Github: https://github.com/yangkun19921001
 """
 
 # 导入协议解析器
-from .protocol_parser import (
+from .parser import (
     ProtocolInfo,
     GlobalConfig,
     AgentInfo,
@@ -22,7 +22,7 @@ from .protocol_parser import (
 )
 
 # 导入节点工厂
-from .node_factory import (
+from .factory import (
     GraphState,
     NodeFunction,
     BaseNodeBuilder,
@@ -33,13 +33,13 @@ from .node_factory import (
 )
 
 # 导入自动构建器
-from .auto_builder import (
+from .builder import (
     LangGraphAutoBuilder,
     GraphExecutionResult
 )
 
 # 导入图管理器
-from .graph_manager import (
+from .graph import (
     GraphRegistry,
     GraphManager,
     get_graph_manager

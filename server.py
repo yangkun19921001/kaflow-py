@@ -27,7 +27,7 @@ def main():
     
     # 启动参数
     host = os.getenv("KAFLOW_HOST", "0.0.0.0")
-    port = int(os.getenv("KAFLOW_PORT", "8000"))
+    port = int(os.getenv("KAFLOW_PORT", "8102"))
     reload = os.getenv("KAFLOW_RELOAD", "true").lower() == "true"
     log_level = os.getenv("KAFLOW_LOG_LEVEL", "info")
     

@@ -15,11 +15,17 @@ from pydantic import BaseModel, Field
 
 from ..llms.config import LLMConfig
 
-
 class AgentType(str, Enum):
     """Agent 类型"""
     AGENT = "agent"                # 通用 Agent
     REACT_AGENT = "react_agent"       # ReAct Agent (推理->执行->思考)
+
+class LoopConfig(BaseModel):
+    """循环配置"""
+    enable: bool = Field(False, description="是否启用循环执行")
+    max_iterations: int = Field(10, description="最大迭代次数", ge=1, le=100)
+    loop_delay: Optional[float] = Field(0.0, description="循环间隔时间(秒)", ge=0.0)
+    force_exit_keywords: List[str] = Field(default_factory=list, description="退出关键词列表")
 
 
 class AgentConfig(BaseModel):
@@ -37,6 +43,9 @@ class AgentConfig(BaseModel):
     tools: Optional[List[Any]] = Field(None, description="可用工具列表")
     tool_choice: Optional[str] = Field("auto", description="工具选择策略")
     
+    # MCP 配置
+    mcp_servers: Optional[List[Dict[str, Any]]] = Field(None, description="MCP 服务器配置")
+    
     # 提示词配置
     system_prompt: Optional[str] = Field(None, description="系统提示词")
     prompt_template: Optional[str] = Field(None, description="提示词模板")
@@ -44,6 +53,9 @@ class AgentConfig(BaseModel):
     # 执行配置
     max_iterations: Optional[int] = Field(10, description="最大迭代次数", ge=1, le=100)
     timeout: Optional[int] = Field(300, description="超时时间(秒)", ge=1, le=3600)
+    
+    # 循环配置
+    loop_config: Optional[LoopConfig] = Field(None, description="循环配置")
     
     # 高级配置
     memory_enabled: Optional[bool] = Field(False, description="是否启用记忆")

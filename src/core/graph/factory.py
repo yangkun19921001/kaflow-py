@@ -11,11 +11,12 @@ Github: https://github.com/yangkun19921001
 
 from typing import Dict, Any, List, Callable, TypedDict, Optional
 from abc import ABC, abstractmethod
+import asyncio
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph import END
 
-from .protocol_parser import WorkflowNode, AgentInfo, ParsedProtocol
+from .parser import WorkflowNode, AgentInfo, ParsedProtocol
 from ...agents import create_agent, AgentConfig, AgentType
 from ...llms import LLMConfig, get_llm
 from ...tools import file_reader, file_writer, system_info, calculator, current_time
@@ -161,6 +162,9 @@ class AgentNodeBuilder(BaseNodeBuilder):
                 # 构建 LLM 配置
                 llm_config_data = self._build_llm_config(agent_info)
                 llm_config = LLMConfig(**llm_config_data)
+
+                # 获取 Loop 配置
+                loop_config = agent_info.loop
                 
                 # 构建工具列表
                 tools = self._build_tools(agent_info.tools)
@@ -174,13 +178,22 @@ class AgentNodeBuilder(BaseNodeBuilder):
                 # 确定 Agent 类型
                 agent_type = self._map_agent_type(agent_info.type)
                 
-                # 构建 Agent 配置
+                # 构建 Agent 配置 - 转换 LoopInfo 为 LoopConfig
+                from ...agents.config import LoopConfig as AgentLoopConfig
+                agent_loop_config = AgentLoopConfig(
+                    enable=loop_config.enable,
+                    max_iterations=loop_config.max_iterations,
+                    loop_delay=loop_config.loop_delay,
+                    force_exit_keywords=loop_config.force_exit_keywords
+                )
+                
                 agent_config = AgentConfig(
                     name=agent_info.name,
                     agent_type=agent_type,
                     llm_config=llm_config,
                     system_prompt=agent_info.system_prompt or "",
-                    tools=tools
+                    tools=tools,
+                    loop_config=agent_loop_config 
                 )
                 
                 # 打印工具信息用于调试
@@ -200,55 +213,43 @@ class AgentNodeBuilder(BaseNodeBuilder):
                 # 准备输入
                 input_text = self._extract_input_text(state, node)
                 
-                # 执行 Agent - 使用异步调用以支持 MCP 工具
-                if agent_type == AgentType.REACT_AGENT:
-                    # ReAct Agent 使用消息格式
-                    if not state.get("messages"):
-                        state["messages"] = [HumanMessage(content=input_text)]
+                # 检查是否启用循环
+                if loop_config.enable:
+                    self.logger.info(f"🔄 启用循环执行，最大迭代次数: {loop_config.max_iterations}")
+                    final_response, loop_count = await self._execute_agent_loop(
+                        agent, agent_type, input_text, state, loop_config
+                    )
                     
-                    # 使用异步调用以支持 MCP 工具
-                    self.logger.debug("🔧 使用异步调用执行 ReAct Agent")
-                    response = await agent.ainvoke({"messages": state["messages"]})
-                    
-                    # 处理响应
-                    if isinstance(response, dict) and 'messages' in response:
-                        state["messages"] = response['messages']
-                        final_response = self._extract_final_response(response['messages'])
-                    else:
-                        final_response = str(response)
-                    
+                    # 更新循环统计信息
+                    state["node_outputs"][node.name] = {
+                        "status": "completed",
+                        "outputs": {
+                            "response": final_response,
+                            "agent_name": agent_info.name,
+                            "agent_type": agent_info.type,
+                            "loop_count": loop_count,
+                            "max_iterations": loop_config.max_iterations
+                        }
+                    }
                 else:
-                    # 普通 Agent - 使用异步调用
-                    self.logger.debug("🔧 使用异步调用执行普通 Agent")
-                    response = await agent.ainvoke(input_text)
+                    # 单次执行 Agent
+                    final_response = await self._execute_agent_single(
+                        agent, agent_type, input_text, state
+                    )
                     
-                    if hasattr(response, 'content'):
-                        final_response = response.content
-                    else:
-                        final_response = str(response)
-                    
-                    # 更新消息历史
-                    if not state.get("messages"):
-                        state["messages"] = []
-                    
-                    state["messages"].extend([
-                        HumanMessage(content=input_text),
-                        AIMessage(content=final_response)
-                    ])
+                    # 存储节点输出
+                    state["node_outputs"][node.name] = {
+                        "status": "completed",
+                        "outputs": {
+                            "response": final_response,
+                            "agent_name": agent_info.name,
+                            "agent_type": agent_info.type
+                        }
+                    }
                 
                 # 更新状态
                 state["final_response"] = final_response
                 state["current_step"] = f"agent_completed:{node.name}"
-                
-                # 存储节点输出
-                state["node_outputs"][node.name] = {
-                    "status": "completed",
-                    "outputs": {
-                        "response": final_response,
-                        "agent_name": agent_info.name,
-                        "agent_type": agent_info.type
-                    }
-                }
                 
                 self.logger.info(f"Agent 节点 {node.name} 执行完成，响应长度: {len(final_response)}")
                 
@@ -526,6 +527,11 @@ class AgentNodeBuilder(BaseNodeBuilder):
     
     def _extract_input_text(self, state: GraphState, node: WorkflowNode) -> str:
         """提取输入文本"""
+        # 根据节点名称决定输入来源
+        if node.name == "generate_report":
+            # 报告生成节点：从前面的分析结果中提取
+            return self._extract_report_input(state, node)
+        
         # 优先使用 user_input
         if state.get("user_input"):
             return state["user_input"]
@@ -543,10 +549,66 @@ class AgentNodeBuilder(BaseNodeBuilder):
         # 从节点输入配置中提取
         for input_config in node.inputs:
             if input_config.get("source"):
-                # TODO: 实现复杂的输入源解析
-                pass
+                # 实现输入源解析
+                source_value = self._resolve_input_source(state, input_config["source"])
+                if source_value:
+                    return str(source_value)
         
         return "请问有什么可以帮助您的吗？"
+    
+    def _extract_report_input(self, state: GraphState, node: WorkflowNode) -> str:
+        """为报告生成节点提取输入数据"""
+        # 构建包含历史信息的完整上下文
+        context_parts = []
+        
+        # 1. 原始用户输入
+        if state.get("user_input"):
+            context_parts.append(f"**原始用户请求**：\n{state['user_input']}\n")
+        
+        # 2. 前面节点的分析结果
+        if state.get("node_outputs"):
+            for node_name, node_output in state["node_outputs"].items():
+                if node_name != node.name and node_output.get("outputs", {}).get("response"):
+                    context_parts.append(f"**{node_name} 分析结果**：\n{node_output['outputs']['response']}\n")
+        
+        # 3. 消息历史中的AI响应
+        if state.get("messages"):
+            ai_responses = []
+            for msg in state["messages"]:
+                if hasattr(msg, 'content') and msg.content and hasattr(msg, 'type'):
+                    if getattr(msg, 'type', None) == 'ai' or str(type(msg).__name__) == 'AIMessage':
+                        ai_responses.append(msg.content)
+            
+            if ai_responses:
+                context_parts.append(f"**执行过程记录**：\n" + "\n".join(ai_responses[-3:]))  # 只取最后3条
+        
+        # 4. 工具调用结果
+        if state.get("tool_results"):
+            context_parts.append(f"**工具执行结果**：\n{state['tool_results']}\n")
+        
+        if context_parts:
+            full_context = "\n".join(context_parts)
+            return f"请根据以下信息生成详细的故障排查报告：\n\n{full_context}"
+        else:
+            return state.get("user_input", "请生成故障排查报告")
+    
+    def _resolve_input_source(self, state: GraphState, source: str) -> Any:
+        """解析输入源引用"""
+        try:
+            # 简单的点号分割解析，例如 "ops_analysis.response"
+            if "." in source:
+                node_name, field_name = source.split(".", 1)
+                if state.get("node_outputs", {}).get(node_name, {}).get("outputs", {}).get(field_name):
+                    return state["node_outputs"][node_name]["outputs"][field_name]
+            
+            # 直接从state中获取
+            if source in state:
+                return state[source]
+                
+        except Exception as e:
+            self.logger.warning(f"解析输入源失败 {source}: {e}")
+        
+        return None
     
     def _extract_final_response(self, messages: List[BaseMessage]) -> str:
         """从消息列表中提取最终响应"""
@@ -561,6 +623,443 @@ class AgentNodeBuilder(BaseNodeBuilder):
         # 如果没有找到，返回最后一个消息的字符串表示
         return str(messages[-1]) if messages else ""
 
+    async def _execute_agent_loop(self, agent, agent_type: AgentType, input_text: str, state: GraphState, loop_config) -> tuple[str, int]:
+        """执行 Agent 循环
+        
+        Args:
+            agent: Agent 实例
+            agent_type: Agent 类型
+            input_text: 输入文本
+            state: 图状态
+            loop_config: 循环配置
+            
+        Returns:
+            tuple[final_response, loop_count]: 最终响应和循环次数
+        """
+        import asyncio
+        
+        self.logger.info("🔄 开始循环执行...")
+        
+        # 初始化消息历史
+        if not state.get("messages"):
+            state["messages"] = [HumanMessage(content=input_text)]
+        
+        messages = state["messages"]
+        max_iterations = loop_config.max_iterations
+        loop_count = 0
+        
+        while loop_count < max_iterations:
+            loop_count += 1
+            self.logger.info(f"🎯 执行循环 {loop_count}/{max_iterations}")
+            
+            try:
+                # 执行一次 Agent 调用
+                if agent_type == AgentType.REACT_AGENT:
+                    # ReAct Agent 使用消息格式
+                    response = await agent.ainvoke(
+                        {"messages": messages}, 
+                        config={"recursion_limit": max_iterations}
+                    )
+                    
+                    if isinstance(response, dict) and 'messages' in response:
+                        messages = response['messages']
+                        latest_message = messages[-1] if messages else None
+                    else:
+                        # 如果响应格式不符合预期，创建 AI 消息
+                        ai_message = AIMessage(content=str(response))
+                        messages.append(ai_message)
+                        latest_message = ai_message
+                else:
+                    # 普通 Agent
+                    response = await agent.ainvoke(input_text)
+                    
+                    if hasattr(response, 'content'):
+                        response_content = response.content
+                    else:
+                        response_content = str(response)
+                    
+                    # 更新消息历史
+                    ai_message = AIMessage(content=response_content)
+                    messages.append(ai_message)
+                    latest_message = ai_message
+                
+                # 更新状态中的消息
+                state["messages"] = messages
+                
+                # 检查是否完成
+                if latest_message and hasattr(latest_message, 'content'):
+                    response_content = latest_message.content
+                    
+                    # 检查完成条件
+                    if self._is_task_completed(response_content, loop_config.force_exit_keywords):
+                        self.logger.info(f"🎉 检测到完成标志，循环在第 {loop_count} 次迭代后结束")
+                        return response_content, loop_count
+                
+                self.logger.debug(f"✅ 循环 {loop_count} 执行成功")
+                
+                # 循环间隔（防止过快请求）
+                if loop_count < max_iterations and loop_config.loop_delay and loop_config.loop_delay > 0:
+                    await asyncio.sleep(loop_config.loop_delay)
+                elif loop_count < max_iterations:
+                    await asyncio.sleep(1)  # 默认间隔 1 秒
+                
+            except Exception as e:
+                self.logger.error(f"❌ 循环 {loop_count} 执行失败: {e}")
+                error_message = f"循环执行失败: {str(e)}"
+                return error_message, loop_count
+        
+        # 达到最大循环次数
+        self.logger.warning(f"⚠️ 达到最大循环次数 {max_iterations}")
+        final_response = self._extract_final_response(messages) if messages else "达到最大循环次数"
+        return final_response, loop_count
+    
+    async def _execute_agent_single(self, agent, agent_type: AgentType, input_text: str, state: GraphState) -> str:
+        """单次执行 Agent
+        
+        Args:
+            agent: Agent 实例
+            agent_type: Agent 类型
+            input_text: 输入文本
+            state: 图状态
+            
+        Returns:
+            str: Agent 响应
+        """
+        if agent_type == AgentType.REACT_AGENT:
+            # ReAct Agent 使用消息格式
+            if not state.get("messages"):
+                state["messages"] = [HumanMessage(content=input_text)]
+            
+            self.logger.debug("🔧 使用异步调用执行 ReAct Agent")
+            response = await agent.ainvoke({"messages": state["messages"]}, config={"recursion_limit": 50})
+            
+            # 处理响应
+            if isinstance(response, dict) and 'messages' in response:
+                state["messages"] = response['messages']
+                final_response = self._extract_final_response(response['messages'])
+            else:
+                final_response = str(response)
+        else:
+            # 普通 Agent - 使用异步调用
+            self.logger.debug("🔧 使用异步调用执行普通 Agent")
+            response = await agent.ainvoke(input_text)
+            
+            if hasattr(response, 'content'):
+                final_response = response.content
+            else:
+                final_response = str(response)
+            
+            # 更新消息历史
+            if not state.get("messages"):
+                state["messages"] = []
+            
+            state["messages"].extend([
+                HumanMessage(content=input_text),
+                AIMessage(content=final_response)
+            ])
+        
+        return final_response
+    
+    def _is_task_completed(self, response_content: str, force_exit_keywords: List[str] = None) -> bool:
+        """检查任务是否完成
+        
+        Args:
+            response_content: AI 响应内容
+            force_exit_keywords: 强制退出关键词列表
+            
+        Returns:
+            bool: 是否完成
+        """
+        if not response_content:
+            return False
+        
+        response_lower = response_content.lower()
+        
+        # 检查自定义退出关键词
+        if force_exit_keywords:
+            for keyword in force_exit_keywords:
+                if keyword.lower() in response_lower:
+                    self.logger.info(f"🎯 检测到自定义退出关键词: {keyword}")
+                    return True
+        
+        # 明确的完成标志
+        completion_indicators = [
+            # 中文完成标志
+            "【最终答案】", "【分析完成】", "【排查完成】", "【总结报告】",
+            "最终答案：", "分析完成：", "排查完成：", "诊断结束：", "结论：",
+            "## 最终答案", "## 分析完成", "## 排查完成", "## 总结报告",
+            "任务完成", "排查结束", "分析结束", "诊断完成",
+            
+            # 英文完成标志
+            "【final answer】", "【analysis complete】", "【diagnosis complete】",
+            "final answer:", "analysis complete:", "diagnosis complete:", "conclusion:",
+            "## final answer", "## analysis complete", "## conclusion",
+            "task completed", "analysis finished", "diagnosis finished"
+        ]
+        
+        # 检查明确标志
+        for indicator in completion_indicators:
+            if indicator in response_lower:
+                self.logger.info(f"🎯 检测到完成标志: {indicator}")
+                return True
+        
+        # 检查上下文完成标志
+        return self._check_contextual_completion(response_lower)
+    
+    def _check_contextual_completion(self, response_lower: str) -> bool:
+        """检查上下文完成标志"""
+        if any(word in response_lower for word in ["完成", "结束", "finished", "completed"]):
+            # 排除误报情况
+            false_positives = [
+                "未完成", "没有完成", "不完成", "未结束", "没有结束",
+                "not completed", "not finished", "incomplete", "unfinished"
+            ]
+            
+            if not any(fp in response_lower for fp in false_positives):
+                # 检查上下文
+                context_words = [
+                    "排查完成", "分析完成", "诊断完成", "检查完成", "任务完成",
+                    "已完成", "顺利完成", "成功完成",
+                    "排查结束", "分析结束", "诊断结束",
+                    "analysis completed", "diagnosis completed", "task completed",
+                    "successfully completed", "check completed"
+                ]
+                
+                if any(ctx in response_lower for ctx in context_words):
+                    self.logger.info("🎯 检测到上下文完成标志")
+                    return True
+        
+        return False
+
+    def _parse_agent_output(self, output_text: str) -> Dict[str, Any]:
+        """尝试解析 JSON 输出，如果成功则返回字典，否则返回空字典"""
+        try:
+            import json
+            return json.loads(output_text)
+        except json.JSONDecodeError:
+            self.logger.warning(f"JSON 解析失败: {output_text}")
+            return {}
+        except Exception as e:
+            self.logger.error(f"解析 JSON 输出失败: {e}")
+            return {}
+
+
+class ConditionNodeBuilder(BaseNodeBuilder):
+    """条件节点构建器"""
+    
+    def can_build(self, node: WorkflowNode) -> bool:
+        return node.type == "condition"
+    
+    def build(self, node: WorkflowNode) -> NodeFunction:
+        """构建条件节点函数"""
+        
+        async def condition_node(state: GraphState) -> GraphState:
+            """条件节点执行函数"""
+            self.logger.debug(f"执行条件节点: {node.name}")
+            
+            # 获取条件配置
+            conditions = getattr(node, 'conditions', {})
+            if not conditions:
+                self.logger.warning(f"条件节点 {node.name} 没有配置条件")
+                return state
+            
+            # 评估每个条件
+            condition_results = {}
+            for condition_name, condition_expr in conditions.items():
+                try:
+                    # 简单的条件评估 - 支持基本的比较和逻辑操作
+                    result = self._evaluate_condition(condition_expr, state)
+                    condition_results[condition_name] = result
+                    self.logger.debug(f"条件 {condition_name}: {condition_expr} -> {result}")
+                except Exception as e:
+                    self.logger.error(f"评估条件失败 {condition_name}: {e}")
+                    condition_results[condition_name] = False
+            
+            # 将条件结果存储到状态中
+            state["node_outputs"][node.name] = {
+                "condition_results": condition_results,
+                "node_type": "condition"
+            }
+            
+            # 更新当前步骤
+            state["current_step"] = node.name
+            
+            return state
+        
+        return NodeFunction(condition_node, node.name, node.type)
+    
+    def _evaluate_condition(self, condition_expr: str, state: GraphState) -> bool:
+        """评估条件表达式"""
+        try:
+            # 获取上下文数据
+            context = {
+                'state': state,
+                'node_outputs': state.get('node_outputs', {}),
+                'context': state.get('context', {})
+            }
+            
+            # 解析简单的条件表达式
+            # 支持格式如: "intent_result.is_device_troubleshooting == true"
+            if '==' in condition_expr:
+                left, right = condition_expr.split('==', 1)
+                left = left.strip()
+                right = right.strip()
+                
+                # 获取左侧值
+                left_value = self._get_value_from_path(left, state)
+                
+                # 解析右侧值
+                if right.lower() == 'true':
+                    right_value = True
+                elif right.lower() == 'false':
+                    right_value = False
+                elif right.startswith('"') and right.endswith('"'):
+                    right_value = right[1:-1]  # 字符串
+                elif right.isdigit():
+                    right_value = int(right)  # 整数
+                else:
+                    right_value = right  # 原始值
+                
+                return left_value == right_value
+            
+            elif '!=' in condition_expr:
+                left, right = condition_expr.split('!=', 1)
+                left = left.strip()
+                right = right.strip()
+                
+                left_value = self._get_value_from_path(left, state)
+                
+                if right.lower() == 'true':
+                    right_value = True
+                elif right.lower() == 'false':
+                    right_value = False
+                elif right.startswith('"') and right.endswith('"'):
+                    right_value = right[1:-1]
+                else:
+                    right_value = right
+                
+                return left_value != right_value
+            
+            # 支持 not 操作
+            elif condition_expr.startswith('not '):
+                inner_expr = condition_expr[4:].strip()
+                return not self._evaluate_condition(inner_expr, state)
+            
+            # 直接布尔值路径
+            else:
+                return bool(self._get_value_from_path(condition_expr, state))
+                
+        except Exception as e:
+            self.logger.error(f"条件评估失败: {condition_expr}, 错误: {e}")
+            return False
+    
+    def _get_value_from_path(self, path: str, state: GraphState):
+        """从路径获取值，如 'intent_result.is_device_troubleshooting'"""
+        try:
+            parts = path.split('.')
+            
+            # 从node_outputs中查找
+            if len(parts) >= 2:
+                node_name = parts[0]
+                if node_name in state.get('node_outputs', {}):
+                    value = state['node_outputs'][node_name]
+                    
+                    # 遍历剩余路径
+                    for part in parts[1:]:
+                        if isinstance(value, dict) and part in value:
+                            value = value[part]
+                        else:
+                            return None
+                    return value
+            
+            # 从context中查找
+            if path in state.get('context', {}):
+                return state['context'][path]
+            
+            # 从顶层状态中查找
+            if path in state:
+                return state[path]
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"获取路径值失败: {path}, 错误: {e}")
+            return None
+
+
+class LoopNodeBuilder(BaseNodeBuilder):
+    """循环节点构建器"""
+    
+    def can_build(self, node: WorkflowNode) -> bool:
+        return node.type == "loop"
+    
+    def build(self, node: WorkflowNode) -> NodeFunction:
+        """构建循环节点函数"""
+        
+        async def loop_node(state: GraphState) -> GraphState:
+            """循环节点执行函数"""
+            self.logger.debug(f"执行循环节点: {node.name}")
+            
+            # 获取循环配置
+            loop_config = getattr(node, 'loop_config', {})
+            items_path = loop_config.get('items', '')
+            max_iterations = loop_config.get('max_iterations', 10)
+            
+            # 获取要循环的项目
+            items = self._get_value_from_path(items_path, state) if items_path else []
+            if not isinstance(items, list):
+                items = []
+            
+            # 初始化循环状态
+            loop_state = {
+                "items": items,
+                "current_index": 0,
+                "max_iterations": max_iterations,
+                "completed": False,
+                "results": []
+            }
+            
+            # 将循环状态存储到节点输出中
+            state["node_outputs"][node.name] = {
+                "loop_state": loop_state,
+                "node_type": "loop"
+            }
+            
+            state["current_step"] = node.name
+            
+            return state
+        
+        return NodeFunction(loop_node, node.name, node.type)
+    
+    def _get_value_from_path(self, path: str, state: GraphState):
+        """从路径获取值"""
+        try:
+            parts = path.split('.')
+            
+            if len(parts) >= 2:
+                node_name = parts[0]
+                if node_name in state.get('node_outputs', {}):
+                    value = state['node_outputs'][node_name]
+                    
+                    for part in parts[1:]:
+                        if isinstance(value, dict) and part in value:
+                            value = value[part]
+                        else:
+                            return None
+                    return value
+            
+            if path in state.get('context', {}):
+                return state['context'][path]
+            
+            if path in state:
+                return state[path]
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"获取路径值失败: {path}, 错误: {e}")
+            return None
+
 
 class NodeFactory:
     """节点工厂"""
@@ -574,6 +1073,8 @@ class NodeFactory:
             StartNodeBuilder(protocol),
             EndNodeBuilder(protocol),
             AgentNodeBuilder(protocol),
+            ConditionNodeBuilder(protocol),
+            LoopNodeBuilder(protocol),
         ]
     
     def create_node_function(self, node: WorkflowNode) -> NodeFunction:
@@ -618,5 +1119,7 @@ __all__ = [
     "StartNodeBuilder",
     "EndNodeBuilder", 
     "AgentNodeBuilder",
+    "ConditionNodeBuilder",
+    "LoopNodeBuilder",
     "NodeFactory"
 ] 

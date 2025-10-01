@@ -11,6 +11,7 @@ Github: https://github.com/yangkun19921001
 
 import threading
 import time
+import asyncio
 from typing import Dict, Optional, Any, List, Union
 from contextlib import contextmanager
 
@@ -18,6 +19,7 @@ from .config import AgentConfig, AgentType
 from .exceptions import AgentError, AgentConfigError
 from ..llms import LLMManager, LLMConfig
 from ..prompts.prompt import apply_prompt_template
+from ..utils.logger import get_logger
 from langgraph.prebuilt import create_react_agent
 
 
@@ -32,6 +34,7 @@ class AgentManager:
         """
         self.llm_manager = LLMManager()
         self._lock = threading.RLock()
+        self.logger = get_logger("AgentManager")
     
     def create_agent(self, config: AgentConfig) -> Any:
         """
@@ -45,6 +48,7 @@ class AgentManager:
         """
         # 参数验证
         self._validate_config(config)
+
         # 根据类型创建不同的 Agent
         if config.agent_type == AgentType.REACT_AGENT:
             return self._create_react_agent(config)
@@ -60,8 +64,10 @@ class AgentManager:
         if not config.llm_config:
             raise AgentConfigError(f"LLM config is required for agent {config.name}", config_key="llm_config", agent_name=config.name)
         
-        if config.agent_type == AgentType.REACT_AGENT and not config.tools:
-            raise AgentConfigError(f"Tools are required for ReAct agent {config.name}", config_key="tools", agent_name=config.name)
+        # ReAct Agent 需要工具，但允许空列表（可以后续动态添加）
+        if config.agent_type == AgentType.REACT_AGENT and config.tools is None:
+            # 如果 tools 是 None，设置为空列表
+            config.tools = []
    
     def _create_react_agent(self, config: AgentConfig) -> Any:
         """创建 ReAct Agent"""
@@ -90,7 +96,7 @@ class AgentManager:
             return llm
         except Exception as e:
             raise AgentError(f"Failed to create simple agent {config.name}: {str(e)}", agent_name=config.name) from e
-    
+
     @contextmanager
     def temporary_agent(self, config: AgentConfig):
         """

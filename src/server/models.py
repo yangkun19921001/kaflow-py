@@ -9,7 +9,7 @@ Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -23,7 +23,7 @@ class Message(BaseModel):
 
 class ChatStreamRequest(BaseModel):
     """聊天流式请求模型"""
-    config_id: str = Field(..., description="配置ID，对应YAML配置文件中的ID")
+    config_id: Union[str, int] = Field(..., description="配置ID，对应YAML配置文件中的ID，支持字符串或整数")
     messages: List[Message] = Field(..., description="聊天消息列表")
     thread_id: str = Field("__default__", description="会话线程ID")
     

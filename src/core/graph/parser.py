@@ -38,6 +38,14 @@ class GlobalConfig(BaseModel):
     runtime: Optional[Dict[str, Any]] = None
 
 
+class LoopInfo(BaseModel):
+    """循环配置信息"""
+    enable: bool = Field(False, description="是否启用循环执行")
+    max_iterations: int = Field(10, description="最大迭代次数", ge=1, le=100)
+    loop_delay: Optional[float] = Field(0.0, description="循环间隔时间(秒)", ge=0.0)
+    force_exit_keywords: List[str] = Field(default_factory=list, description="退出关键词列表")
+
+
 class AgentInfo(BaseModel):
     """Agent 信息"""
     name: str
@@ -48,6 +56,7 @@ class AgentInfo(BaseModel):
     llm: Optional[Dict[str, Any]] = None
     tools: List[Dict[str, Any]] = Field(default_factory=list)
     mcp_servers: List[Dict[str, Any]] = Field(default_factory=list)
+    loop: LoopInfo = Field(default_factory=lambda: LoopInfo(), description="循环配置")
 
 
 class WorkflowNode(BaseModel):
@@ -60,6 +69,7 @@ class WorkflowNode(BaseModel):
     inputs: List[Dict[str, Any]] = Field(default_factory=list)
     outputs: List[Dict[str, Any]] = Field(default_factory=list)
     conditions: Optional[Dict[str, Any]] = None
+    loop_config: Optional[Dict[str, Any]] = None  # 添加循环配置字段
 
 
 class WorkflowEdge(BaseModel):

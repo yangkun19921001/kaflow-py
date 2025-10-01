@@ -15,8 +15,8 @@ from pathlib import Path
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 
-from .protocol_parser import ProtocolParser, ParsedProtocol, WorkflowEdge
-from .node_factory import NodeFactory, GraphState, NodeFunction
+from .parser import ProtocolParser, ParsedProtocol, WorkflowEdge
+from .factory import NodeFactory, GraphState, NodeFunction
 from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -28,6 +28,7 @@ class LangGraphAutoBuilder:
     def __init__(self):
         self.logger = get_logger(__name__)
         self.parser = ProtocolParser()
+        self._conditional_paths = {}  # 存储条件路径映射
     
     def build_from_file(self, file_path: Union[str, Path]) -> CompiledStateGraph:
         """
@@ -84,6 +85,9 @@ class LangGraphAutoBuilder:
             编译后的 LangGraph
         """
         self.logger.info(f"构建 LangGraph: {protocol.protocol.name}")
+        
+        # 重置条件路径映射
+        self._conditional_paths = {}
         
         # 创建状态图
         graph = StateGraph(GraphState)
@@ -142,30 +146,108 @@ class LangGraphAutoBuilder:
         """添加条件边"""
         self.logger.debug(f"添加条件边: {edge.from_node} -> {edge.to_node} (条件: {edge.condition})")
         
+        # 为每个条件边创建唯一的条件函数
+        condition_name = f"{edge.from_node}_to_{edge.to_node}_condition"
+        
+        def create_condition_func(condition_expr: str, target_node: str):
+            """创建条件函数的工厂方法"""
+            def condition_func(state: GraphState) -> str:
+                """条件函数"""
+                try:
+                    # 从条件节点的输出中获取条件结果
+                    node_outputs = state.get("node_outputs", {})
+                    
+                    # 如果源节点是条件节点，检查其条件结果
+                    if edge.from_node in node_outputs:
+                        node_output = node_outputs[edge.from_node]
+                        if node_output.get("node_type") == "condition":
+                            condition_results = node_output.get("condition_results", {})
+                            
+                            # 检查特定条件是否为真
+                            if condition_expr in condition_results:
+                                if condition_results[condition_expr]:
+                                    self.logger.debug(f"条件 {condition_expr} 为真，路由到 {target_node}")
+                                    return target_node
+                                else:
+                                    self.logger.debug(f"条件 {condition_expr} 为假，跳过")
+                                    return "__skip__"  # 特殊值表示不走这条路径
+                    
+                    # 传统的条件判断（向后兼容）
+                    if condition_expr == "success":
+                        return target_node if state.get("current_step", "").endswith("completed") else "__skip__"
+                    elif condition_expr == "failure":
+                        return target_node if state.get("current_step", "").endswith("failed") else "__skip__"
+                    else:
+                        # 默认情况 - 总是路由到目标节点
+                        return target_node
+                        
+                except Exception as e:
+                    self.logger.error(f"条件评估失败: {e}")
+                    return "__skip__"
+            
+            return condition_func
+        
         # 创建条件函数
-        def condition_func(state: GraphState) -> str:
-            """条件函数"""
-            # 简单的条件判断实现
-            # TODO: 实现更复杂的条件逻辑
-            if edge.condition == "success":
-                return edge.to_node if state.get("current_step", "").endswith("completed") else END
-            elif edge.condition == "failure":
-                return edge.to_node if state.get("current_step", "").endswith("failed") else END
-            else:
-                # 默认情况
-                return edge.to_node
+        condition_func = create_condition_func(edge.condition, edge.to_node)
         
-        # 创建路径映射
-        path_map = {
-            edge.to_node: edge.to_node,
-            END: END
-        }
+        # 检查是否已经为这个源节点添加过条件边
+        # 如果是，需要合并条件
+        source_node = edge.from_node
         
-        graph.add_conditional_edges(
-            edge.from_node,
-            condition_func,
-            path_map
-        )
+        # 创建或更新路径映射
+        if not hasattr(self, '_conditional_paths'):
+            self._conditional_paths = {}
+        
+        if source_node not in self._conditional_paths:
+            self._conditional_paths[source_node] = {}
+        
+        # 添加这个条件的路径
+        self._conditional_paths[source_node][edge.condition] = edge.to_node
+        
+        # 创建综合的条件函数
+        def master_condition_func(state: GraphState) -> str:
+            """主条件函数，处理多个条件分支"""
+            try:
+                node_outputs = state.get("node_outputs", {})
+                
+                if source_node in node_outputs:
+                    node_output = node_outputs[source_node]
+                    if node_output.get("node_type") == "condition":
+                        condition_results = node_output.get("condition_results", {})
+                        
+                        # 检查每个条件，返回第一个为真的条件对应的目标节点
+                        for condition_name, target_node in self._conditional_paths[source_node].items():
+                            if condition_name in condition_results and condition_results[condition_name]:
+                                self.logger.debug(f"条件 {condition_name} 为真，路由到 {target_node}")
+                                return target_node
+                
+                # 如果没有条件为真，返回END
+                self.logger.debug(f"没有条件为真，从 {source_node} 结束")
+                return END
+                
+            except Exception as e:
+                self.logger.error(f"主条件函数评估失败: {e}")
+                return END
+        
+        # 构建完整的路径映射
+        path_map = {}
+        for condition_name, target_node in self._conditional_paths[source_node].items():
+            path_map[target_node] = target_node
+        path_map[END] = END
+        path_map["__skip__"] = END  # 处理跳过的情况
+        
+        # 只在第一次为这个源节点添加条件边时调用add_conditional_edges
+        if len(self._conditional_paths[source_node]) == 1:
+            graph.add_conditional_edges(
+                source_node,
+                master_condition_func,
+                path_map
+            )
+        else:
+            # 如果已经添加过，更新路径映射
+            # 注意：LangGraph不支持动态更新条件边，所以我们需要重新构建
+            self.logger.debug(f"更新节点 {source_node} 的条件路径映射")
+            # 这里可能需要重新构建图，但为了简化，我们假设所有条件边在初始构建时就定义好了
     
     def _find_entry_point(self, protocol: ParsedProtocol) -> str:
         """查找入口点"""
