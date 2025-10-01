@@ -43,6 +43,7 @@ class LoopInfo(BaseModel):
     enable: bool = Field(False, description="是否启用循环执行")
     max_iterations: int = Field(10, description="最大迭代次数", ge=1, le=100)
     loop_delay: Optional[float] = Field(0.0, description="循环间隔时间(秒)", ge=0.0)
+    no_tool_goto: Optional[str] = Field(None, description="第一次迭代无工具调用时跳转到的节点名称")
     force_exit_keywords: List[str] = Field(default_factory=list, description="退出关键词列表")
 
 

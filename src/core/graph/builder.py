@@ -127,20 +127,72 @@ class LangGraphAutoBuilder:
         """添加边到图"""
         self.logger.debug("添加边到图")
         
+        # 收集所有节点名称，用于动态路由
+        all_nodes = set()
+        for edge in edges:
+            all_nodes.add(edge.from_node)
+            if edge.to_node not in ['end_node', 'end', END]:
+                all_nodes.add(edge.to_node)
+        
         for edge in edges:
             if edge.to_node == 'end_node' or edge.to_node.endswith('_end'):
-                # 连接到 END
-                graph.add_edge(edge.from_node, END)
-                self.logger.debug(f"添加边: {edge.from_node} -> END")
+                # 连接到 END - 使用条件边支持动态跳转
+                self._add_dynamic_edge(graph, edge.from_node, END, all_nodes)
             else:
                 # 普通边
                 if edge.condition:
                     # 条件边
                     self._add_conditional_edge(graph, edge)
                 else:
-                    # 普通边
-                    graph.add_edge(edge.from_node, edge.to_node)
-                    self.logger.debug(f"添加边: {edge.from_node} -> {edge.to_node}")
+                    # 普通边 - 使用条件边支持动态跳转
+                    self._add_dynamic_edge(graph, edge.from_node, edge.to_node, all_nodes)
+    
+    def _add_dynamic_edge(self, graph: StateGraph, from_node: str, default_to_node: str, all_nodes: set) -> None:
+        """添加支持动态跳转的边
+        
+        Args:
+            graph: StateGraph 实例
+            from_node: 源节点
+            default_to_node: 默认目标节点
+            all_nodes: 所有可用节点集合
+        """
+        def routing_func(state: GraphState) -> str:
+            """路由函数：检查是否需要动态跳转"""
+            # 检查是否有跳转标记
+            goto_node = state.get("_goto_node")
+            if goto_node:
+                self.logger.info(f"🔀 检测到动态跳转标记: {from_node} -> {goto_node}")
+                # 清除跳转标记
+                state["_goto_node"] = None
+                
+                # 验证目标节点是否存在
+                if goto_node == "end":
+                    return END
+                elif goto_node in all_nodes:
+                    return goto_node
+                else:
+                    self.logger.warning(f"⚠️ 跳转目标节点不存在: {goto_node}, 使用默认路由")
+                    return default_to_node if default_to_node != END else END
+            
+            # 默认路由
+            return default_to_node if default_to_node != END else END
+        
+        # 构建路径映射
+        path_map = {default_to_node if default_to_node != END else END: default_to_node if default_to_node != END else END}
+        
+        # 添加所有可能的跳转目标
+        for node in all_nodes:
+            if node != from_node:  # 避免自循环
+                path_map[node] = node
+        path_map[END] = END
+        
+        # 添加条件边
+        graph.add_conditional_edges(
+            from_node,
+            routing_func,
+            path_map
+        )
+        self.logger.debug(f"添加动态边: {from_node} -> {default_to_node} (支持动态跳转)")
     
     def _add_conditional_edge(self, graph: StateGraph, edge: WorkflowEdge) -> None:
         """添加条件边"""

@@ -17,6 +17,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph import END
 
 from .parser import WorkflowNode, AgentInfo, ParsedProtocol
+from .io_resolver import get_io_resolver
 from ...agents import create_agent, AgentConfig, AgentType
 from ...llms import LLMConfig, get_llm
 from ...tools import file_reader, file_writer, system_info, calculator, current_time
@@ -35,6 +36,7 @@ class GraphState(TypedDict):
     final_response: str
     context: Dict[str, Any]
     node_outputs: Dict[str, Any]  # 存储各个节点的输出
+    _goto_node: Optional[str]  # 动态跳转目标节点（内部使用）
 
 
 class NodeFunction:
@@ -145,6 +147,10 @@ class EndNodeBuilder(BaseNodeBuilder):
 class AgentNodeBuilder(BaseNodeBuilder):
     """Agent 节点构建器"""
     
+    def __init__(self, protocol: ParsedProtocol):
+        super().__init__(protocol)
+        self.io_resolver = get_io_resolver()
+    
     def can_build(self, node: WorkflowNode) -> bool:
         return node.type == 'agent'
     
@@ -210,8 +216,11 @@ class AgentNodeBuilder(BaseNodeBuilder):
                 agent = create_agent(agent_config)
                 self.logger.debug(f"Agent {agent_info.name} 创建成功: {type(agent)}")
                 
-                # 准备输入
-                input_text = self._extract_input_text(state, node)
+                # 使用 IO 解析器准备输入
+                resolved_inputs = self.io_resolver.resolve_inputs(node, state)
+                input_text = self.io_resolver.build_agent_input(node, state, resolved_inputs)
+                
+                self.logger.info(f"解析了 {len(resolved_inputs)} 个输入字段: {list(resolved_inputs.keys())}")
                 
                 # 检查是否启用循环
                 if loop_config.enable:
@@ -220,32 +229,24 @@ class AgentNodeBuilder(BaseNodeBuilder):
                         agent, agent_type, input_text, state, loop_config
                     )
                     
-                    # 更新循环统计信息
-                    state["node_outputs"][node.name] = {
-                        "status": "completed",
-                        "outputs": {
-                            "response": final_response,
-                            "agent_name": agent_info.name,
-                            "agent_type": agent_info.type,
-                            "loop_count": loop_count,
-                            "max_iterations": loop_config.max_iterations
-                        }
-                    }
+                    # 使用 IO 解析器存储输出
+                    self.io_resolver.store_outputs(node, state, final_response)
+                    
+                    # 添加额外的元数据
+                    if node.name in state["node_outputs"]:
+                        state["node_outputs"][node.name]["status"] = "completed"
+                        state["node_outputs"][node.name]["loop_count"] = loop_count
+                        state["node_outputs"][node.name]["max_iterations"] = loop_config.max_iterations
                 else:
                     # 单次执行 Agent
                     final_response = await self._execute_agent_single(
                         agent, agent_type, input_text, state
                     )
                     
-                    # 存储节点输出
-                    state["node_outputs"][node.name] = {
-                        "status": "completed",
-                        "outputs": {
-                            "response": final_response,
-                            "agent_name": agent_info.name,
-                            "agent_type": agent_info.type
-                        }
-                    }
+                    # 使用 IO 解析器存储输出
+                    self.io_resolver.store_outputs(node, state, final_response)
+                    if node.name in state["node_outputs"]:
+                        state["node_outputs"][node.name]["status"] = "completed"
                 
                 # 更新状态
                 state["final_response"] = final_response
@@ -525,90 +526,7 @@ class AgentNodeBuilder(BaseNodeBuilder):
         self.logger.debug(f"映射 Agent 类型: {agent_type_str} -> {mapped_type}")
         return mapped_type
     
-    def _extract_input_text(self, state: GraphState, node: WorkflowNode) -> str:
-        """提取输入文本"""
-        # 根据节点名称决定输入来源
-        if node.name == "generate_report":
-            # 报告生成节点：从前面的分析结果中提取
-            return self._extract_report_input(state, node)
-        
-        # 优先使用 user_input
-        if state.get("user_input"):
-            return state["user_input"]
-        
-        # 从消息历史中提取
-        if state.get("messages"):
-            last_human_msg = None
-            for msg in reversed(state["messages"]):
-                if isinstance(msg, HumanMessage):
-                    last_human_msg = msg
-                    break
-            if last_human_msg:
-                return last_human_msg.content
-        
-        # 从节点输入配置中提取
-        for input_config in node.inputs:
-            if input_config.get("source"):
-                # 实现输入源解析
-                source_value = self._resolve_input_source(state, input_config["source"])
-                if source_value:
-                    return str(source_value)
-        
-        return "请问有什么可以帮助您的吗？"
-    
-    def _extract_report_input(self, state: GraphState, node: WorkflowNode) -> str:
-        """为报告生成节点提取输入数据"""
-        # 构建包含历史信息的完整上下文
-        context_parts = []
-        
-        # 1. 原始用户输入
-        if state.get("user_input"):
-            context_parts.append(f"**原始用户请求**：\n{state['user_input']}\n")
-        
-        # 2. 前面节点的分析结果
-        if state.get("node_outputs"):
-            for node_name, node_output in state["node_outputs"].items():
-                if node_name != node.name and node_output.get("outputs", {}).get("response"):
-                    context_parts.append(f"**{node_name} 分析结果**：\n{node_output['outputs']['response']}\n")
-        
-        # 3. 消息历史中的AI响应
-        if state.get("messages"):
-            ai_responses = []
-            for msg in state["messages"]:
-                if hasattr(msg, 'content') and msg.content and hasattr(msg, 'type'):
-                    if getattr(msg, 'type', None) == 'ai' or str(type(msg).__name__) == 'AIMessage':
-                        ai_responses.append(msg.content)
-            
-            if ai_responses:
-                context_parts.append(f"**执行过程记录**：\n" + "\n".join(ai_responses[-3:]))  # 只取最后3条
-        
-        # 4. 工具调用结果
-        if state.get("tool_results"):
-            context_parts.append(f"**工具执行结果**：\n{state['tool_results']}\n")
-        
-        if context_parts:
-            full_context = "\n".join(context_parts)
-            return f"请根据以下信息生成详细的故障排查报告：\n\n{full_context}"
-        else:
-            return state.get("user_input", "请生成故障排查报告")
-    
-    def _resolve_input_source(self, state: GraphState, source: str) -> Any:
-        """解析输入源引用"""
-        try:
-            # 简单的点号分割解析，例如 "ops_analysis.response"
-            if "." in source:
-                node_name, field_name = source.split(".", 1)
-                if state.get("node_outputs", {}).get(node_name, {}).get("outputs", {}).get(field_name):
-                    return state["node_outputs"][node_name]["outputs"][field_name]
-            
-            # 直接从state中获取
-            if source in state:
-                return state[source]
-                
-        except Exception as e:
-            self.logger.warning(f"解析输入源失败 {source}: {e}")
-        
-        return None
+
     
     def _extract_final_response(self, messages: List[BaseMessage]) -> str:
         """从消息列表中提取最终响应"""
@@ -686,6 +604,17 @@ class AgentNodeBuilder(BaseNodeBuilder):
                 # 更新状态中的消息
                 state["messages"] = messages
                 
+                # 第一次迭代：检查是否有工具调用
+                if loop_count == 1 and loop_config.no_tool_goto:
+                    has_tool_calls = self._check_has_tool_calls(messages)
+                    if not has_tool_calls:
+                        self.logger.info(f"🔀 第一次迭代无工具调用，跳转到节点: {loop_config.no_tool_goto}")
+                        # 设置跳转标记到 state
+                        state["_goto_node"] = loop_config.no_tool_goto
+                        # 提取最终响应
+                        final_response = self._extract_final_response(messages) if messages else "无工具调用"
+                        return final_response, loop_count
+                
                 # 检查是否完成
                 if latest_message and hasattr(latest_message, 'content'):
                     response_content = latest_message.content
@@ -759,6 +688,29 @@ class AgentNodeBuilder(BaseNodeBuilder):
             ])
         
         return final_response
+    
+    def _check_has_tool_calls(self, messages: List) -> bool:
+        """检查消息历史中是否有工具调用
+        
+        Args:
+            messages: 消息历史列表
+            
+        Returns:
+            bool: 是否有工具调用
+        """
+        for msg in messages:
+            # 检查是否是 ToolMessage
+            if msg.__class__.__name__ == 'ToolMessage':
+                self.logger.debug(f"✅ 发现 ToolMessage: {msg}")
+                return True
+            
+            # 检查 AIMessage 的 tool_calls 属性
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                self.logger.debug(f"✅ 发现 tool_calls: {msg.tool_calls}")
+                return True
+        
+        self.logger.debug("❌ 未发现任何工具调用")
+        return False
     
     def _is_task_completed(self, response_content: str, force_exit_keywords: List[str] = None) -> bool:
         """检查任务是否完成

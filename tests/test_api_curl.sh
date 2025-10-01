@@ -14,7 +14,7 @@ USER_INPUT=$2
 # 检查参数
 if [ -z "$CONFIG_ID" ] || [ -z "$USER_INPUT" ]; then
     echo "用法: $0 <CONFIG_ID> <USER_INPUT>"
-    echo "示例: $0 3 '看下这台设备的路由配置和内存信息,设备ID:39ac808fa87ce3b4e41b2e9cf135ec2a'"
+    echo "示例: $0 3 '分别看下这台设备的路由配置和内存信息,设备ID: a028e0ba12656e613afac286244960ad'"
     echo "注意: CONFIG_ID 应该是整数，不要加引号"
     exit 1
 fi

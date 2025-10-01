@@ -32,6 +32,14 @@ from .factory import (
     NodeFactory
 )
 
+# 导入输入输出解析器
+from .io_resolver import (
+    InputField,
+    OutputField,
+    InputOutputResolver,
+    get_io_resolver
+)
+
 # 导入自动构建器
 from .builder import (
     LangGraphAutoBuilder,
@@ -79,6 +87,12 @@ __all__ = [
     "EndNodeBuilder",
     "AgentNodeBuilder",
     "NodeFactory",
+    
+    # 输入输出解析器
+    "InputField",
+    "OutputField",
+    "InputOutputResolver",
+    "get_io_resolver",
     
     # 自动构建器
     "LangGraphAutoBuilder",
