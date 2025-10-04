@@ -4,7 +4,7 @@ KaFlow-Py LLM 工厂类
 简化的工厂类，负责根据配置创建 LLM 实例，支持缓存优化。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
@@ -49,6 +49,10 @@ class LLMFactory:
                 
                 # 创建客户端
                 client = provider.create_client()
+                
+                # 将原始配置附加到 LLM 实例上，方便其他工具（如 browser_use）检测 provider 类型
+                # 使用 _llm_config 作为内部属性名
+                setattr(client, "_llm_config", config)
                 
                 return client
                 

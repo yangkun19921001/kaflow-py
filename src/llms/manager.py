@@ -4,7 +4,7 @@ KaFlow-Py LLM 管理器
 简化的 LLM 管理器，只支持参数传入，实现函数重载机制。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

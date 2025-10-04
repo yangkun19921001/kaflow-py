@@ -10,7 +10,7 @@ KaFlow-Py LLMs 模块
 - 类型安全
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
@@ -22,6 +22,24 @@ from .manager import LLMManager, get_manager
 from .manager import (
     get_llm,
 )
+
+# 创建 LLM 的便捷函数（别名）
+def create_llm(config):
+    """
+    创建 LLM 实例的便捷函数
+    
+    Args:
+        config: LLMConfig 配置对象
+        
+    Returns:
+        LLM 实例
+        
+    Examples:
+        >>> from kaflow_py.llms import create_llm, LLMConfig, LLMProviderType
+        >>> config = LLMConfig(provider=LLMProviderType.DEEPSEEK, api_key="sk-xxx", model="deepseek-v3-0324")
+        >>> llm = create_llm(config)
+    """
+    return get_llm(config)
 
 # 配置相关
 from .config import (
@@ -63,6 +81,7 @@ __all__ = [
     # 便捷函数
     "get_manager",
     "get_llm",
+    "create_llm",
 
     # 配置
     "LLMConfig",

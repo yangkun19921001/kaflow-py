@@ -7,7 +7,7 @@ KaFlow-Py Agents 模块
 - 外部传参配置
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

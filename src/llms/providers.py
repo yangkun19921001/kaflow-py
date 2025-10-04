@@ -5,7 +5,7 @@ KaFlow-Py LLMs 提供商实现
 采用策略模式，便于扩展新的提供商。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

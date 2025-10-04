@@ -6,7 +6,7 @@ KaFlow-Py 框架的核心功能包，包含：
 - 其他核心模块将在此处添加
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

@@ -4,7 +4,7 @@ KaFlow-Py 图管理模块
 基于 LangGraph API 的自动图构建系统，支持从协议模板自动生成工作流图。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

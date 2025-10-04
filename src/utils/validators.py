@@ -4,7 +4,7 @@ KaFlow-Py 配置验证器模块
 提供KaFlow配置协议的验证功能，确保配置的正确性和完整性
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

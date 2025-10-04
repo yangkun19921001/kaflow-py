@@ -8,7 +8,7 @@ KaFlow-Py Graph 数据模型
 - 执行状态模型
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

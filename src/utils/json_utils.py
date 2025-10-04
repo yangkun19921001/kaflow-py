@@ -4,7 +4,7 @@ KaFlow-Py JSON 处理工具模块
 提供安全的JSON解析、生成和修复功能
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

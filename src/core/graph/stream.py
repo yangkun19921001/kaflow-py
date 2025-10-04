@@ -5,7 +5,7 @@ KaFlow-Py 流式消息处理器
 支持工具调用组装、消息块处理、错误处理等
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
@@ -268,7 +268,6 @@ class StreamMessageProcessor:
                 initial_state,
                 config={
                     "configurable": {"thread_id": self.thread_id},
-                    "thread_id": self.thread_id,
                 },
                 stream_mode=["messages"],
                 subgraphs=True,

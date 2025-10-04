@@ -5,7 +5,7 @@ KaFlow-Py 服务启动脚本
 启动 FastAPI 服务器
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

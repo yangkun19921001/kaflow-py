@@ -4,7 +4,7 @@ KaFlow-Py Agents 管理器
 简化的 Agent 管理器，负责管理和创建 Agent 实例。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

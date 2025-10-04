@@ -4,7 +4,7 @@ KaFlow-Py 工具模块
 提供日志记录、JSON处理、配置加载等基础工具功能
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

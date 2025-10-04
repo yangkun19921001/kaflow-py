@@ -1,0 +1,322 @@
+# =================================================================
+# KaFlow-Py 浏览器自动化工具模版
+# 使用 react_agent + browser_use tool 的方式实现浏览器自动化
+# =================================================================
+
+id: 2
+
+# =================================================================
+# 协议版本与元信息
+# =================================================================
+protocol:
+  name: "浏览器自动化助手"
+  version: "1.0.0"
+  schema_version: "2025.09.10"
+  description: "可以将用户的需求转换为浏览器自动化任务，并执行"
+  author: "DevYK"
+  license: "MIT"
+
+# =================================================================
+# 全局配置
+# =================================================================
+global_config:
+  # 运行时配置
+  runtime:
+    timeout: 300
+    max_retries: 3
+    parallel_limit: 1
+    debug_mode: false
+    trace_enabled: true
+    checkpoint_enabled: true
+
+  # 日志配置
+  logging:
+    level: "INFO"
+    format: "json"
+    output: "stdout"
+    file_path: "./logs/browser_tool.log"
+    max_size: "50MB"
+    max_files: 5
+
+  # 内存配置
+  # 记忆存储配置
+  memory:                                    # 记忆存储配置 (可选)
+    enabled: true                            # 启用记忆存储 (可选)
+    provider: "memory"                       # 存储提供商: memory|redis|postgresql|mongodb|sqlite (可选)
+
+# =================================================================
+# Agent 配置
+# =================================================================
+agents:
+  # 浏览器自动化 Agent
+  browser_agent:
+    name: "browser_agent"
+    type: "react_agent"  # 使用 react_agent，支持工具调用
+    description: "智能浏览器助手，可以使用浏览器自动化工具完成网页任务"
+    enabled: true
+    
+    system_prompt: |
+      你是一个智能浏览器助手，具备以下能力：
+      
+      1. 使用 browser_use 工具执行浏览器自动化任务
+      2. 访问网站并提取信息
+      3. 搜索和导航
+      4. 数据抓取和分析
+      
+      工具使用说明：
+      - browser_use: 执行浏览器自动化任务
+        参数：task (要执行的任务描述)
+        示例：browser_use(task="访问 github.com/browser-use/browser-use，获取项目的 star 数量")
+      
+      执行策略：
+      1. 理解用户的需求
+      2. 分析是否需要使用浏览器工具
+      3. 如果需要，调用 browser_use 工具执行任务
+      4. 解析工具返回的结果
+      5. 给出清晰的回答
+      
+      注意事项：
+      - 浏览器操作需要时间，请耐心等待
+      - 如果任务失败，分析原因并尝试优化任务描述
+      - 对于复杂任务，可以分步执行
+    
+    llm:
+      provider: "openai"
+      base_url: "https://api.ppinfra.com/v3/openai"
+      api_key: "${DEEPSEEK_API_KEY}"
+      model: "deepseek/deepseek-v3-0324"
+      temperature: 0.3
+      max_tokens: 4096
+      timeout: 60
+    
+    # 工具配置 - browser_use
+    tools:
+      - name: "browser_use"
+        type: "browser_use"  # 特殊标记，表示使用 browser_use tool
+        description: "使用 AI 控制浏览器执行自动化任务"
+        config:
+          headless: true  # 是否无头模式
+          disable_security: false
+          window_w: 1280
+          window_h: 1100
+          save_recording_path: null
+    
+    mcp_servers: []
+
+  # 总结 Agent
+  summary_agent:
+    name: "summary_agent"
+    type: "agent"
+    description: "对浏览器任务结果进行总结和分析"
+    enabled: true
+    
+    system_prompt: |
+      你是一个专业的数据分析和总结助手。你的任务是：
+      1. 接收浏览器任务的执行结果
+      2. 分析和整理收集到的信息
+      3. 生成清晰、结构化的总结报告
+      4. 提取关键信息和要点
+      5. 如果有问题或异常，指出并给出建议
+      
+      总结时请：
+      - 使用清晰的结构（标题、列表、段落）
+      - 突出重要信息
+      - 保持客观和准确
+      - 如果数据不完整，明确说明
+    
+    llm:
+      provider: "deepseek"
+      base_url: "https://api.ppinfra.com/v3/openai"
+      api_key: "${DEEPSEEK_API_KEY}"
+      model: "deepseek/deepseek-v3-0324"
+      temperature: 0.7
+      max_tokens: 2048
+      timeout: 30
+    
+    tools: []
+    mcp_servers: []
+
+
+# =================================================================
+# 工作流配置
+# =================================================================
+workflow:
+  name: "浏览器工具自动化工作流"
+  version: "1.0.0"
+  description: "使用 browser_use tool 执行浏览器任务，并对结果进行总结"
+  author: "DevYK"
+  schema_version: "2025.09.10"
+  
+  settings:
+    timeout: 300
+    max_retries: 3
+    debug_mode: false
+
+  # =================================================================
+  # 节点定义
+  # =================================================================
+  nodes:
+    # 开始节点
+    - name: "start_node"
+      type: "start"
+      description: "工作流开始节点，接收用户的浏览器任务"
+      position:
+        x: 100
+        y: 100
+      outputs:
+        - name: "user_query"
+          type: "string"
+          description: "用户的查询或任务描述"
+
+    # 浏览器 Agent 节点
+    - name: "browser_agent"
+      type: "agent"
+      description: "使用 browser_use tool 执行任务的智能 Agent"
+      agent_ref: "browser_agent"
+      position:
+        x: 300
+        y: 100
+      
+      inputs:
+        - name: "query"
+          type: "string"
+          required: true
+          source: "start_node.user_query"
+          description: "用户查询"
+      
+      outputs:
+        - name: "result"
+          type: "string"
+          description: "浏览器任务执行结果"
+        - name: "status"
+          type: "string"
+          description: "执行状态"
+
+    # 总结节点
+    - name: "summary_agent"
+      type: "agent"
+      description: "总结浏览器任务结果"
+      agent_ref: "summary_agent"
+      position:
+        x: 500
+        y: 100
+      
+      inputs:
+        - name: "browser_result"
+          type: "string"
+          required: true
+          source: "browser_agent.result"
+          description: "浏览器任务的原始结果"
+        - name: "original_query"
+          type: "string"
+          required: true
+          source: "start_node.user_query"
+          description: "原始用户查询"
+      
+      outputs:
+        - name: "summary"
+          type: "string"
+          description: "结构化的总结报告"
+
+    # 结束节点
+    - name: "end_node"
+      type: "end"
+      description: "工作流结束节点"
+      position:
+        x: 700
+        y: 100
+      inputs:
+        - name: "final_summary"
+          type: "string"
+          required: true
+          source: "summary_agent.summary"
+          description: "最终总结报告"
+
+  # =================================================================
+  # 边定义
+  # =================================================================
+  edges:
+    - from: "start_node"
+      to: "browser_agent"
+      description: "传递用户查询到浏览器 Agent"
+      
+    - from: "browser_agent"
+      to: "summary_agent"
+      description: "传递浏览器结果到总结 Agent"
+      
+    - from: "summary_agent"
+      to: "end_node"
+      description: "输出最终总结报告"
+
+
+# =================================================================
+# 使用说明
+# =================================================================
+usage_notes: |
+  浏览器工具自动化使用说明：
+  
+  1. 功能特点：
+     - 将 browser-use 封装为通用工具
+     - 使用 ReAct Agent 智能调用
+     - 支持复杂的推理和工具组合
+     - 自动总结和分析结果
+     - 可与其他工具混合使用
+  
+  2. 环境准备：
+     - 安装依赖：uv pip install browser-use playwright
+     - 安装浏览器：uvx playwright install chromium --with-deps --no-shell
+     - 设置环境变量：DEEPSEEK_API_KEY 或 OPENAI_API_KEY
+  
+  3. 使用示例：
+     # 示例任务 1: GitHub 项目信息
+     user_query: "browser-use 项目有多少 star？"
+     
+     # 示例任务 2: 股票价格查询
+     user_query: "今日特斯拉股价怎么样？"
+     
+     # 示例任务 3: 搜索和导航
+     user_query: "帮我搜索 Python 浏览器自动化的最新教程"
+     
+     # 示例任务 4: 不需要浏览器
+     user_query: "1+1等于几？"  # Agent 会判断不需要使用浏览器工具
+  
+  4. 启动方式：
+     python main.py --config src/core/config/chat_browser_tool.yaml
+  
+  5. 优势：
+     - 更灵活：ReAct Agent 可以智能决策是否使用浏览器
+     - 更通用：browser_use 作为工具，可以在任何 Agent 中使用
+     - 更强大：可以与其他工具组合使用
+     - 更智能：支持多步推理和任务分解
+  
+  6. 工具配置：
+     在 agents.browser_agent.tools 中配置 browser_use：
+     - headless: 是否无头模式（false=显示浏览器窗口）
+     - disable_security: 是否禁用安全特性
+     - window_w/window_h: 浏览器窗口大小
+     - save_recording_path: 录屏保存路径
+  
+  7. 高级用法：
+     - 可以添加更多工具到 browser_agent（如 calculator, file_reader 等）
+     - Agent 会智能选择合适的工具组合完成任务
+     - 支持复杂的多步骤任务分解和执行
+  
+  8. Python API 使用：
+     ```python
+     from tools import create_browser_use_tool
+     from langchain_openai import ChatOpenAI
+     
+     llm = ChatOpenAI(model="gpt-4")
+     browser_tool = create_browser_use_tool(llm, headless=False)
+     
+     # 在 ReAct Agent 中使用
+     from langgraph.prebuilt import create_react_agent
+     agent = create_react_agent(model=llm, tools=[browser_tool])
+     result = await agent.ainvoke({"messages": [{"role": "user", "content": "访问 github.com"}]})
+     ```
+  
+  9. 注意事项：
+     - 浏览器任务通常需要 30-120 秒
+     - 建议先用简单任务测试
+     - 调试时设置 headless=false 观察浏览器操作
+     - 某些网站可能有反爬虫机制 

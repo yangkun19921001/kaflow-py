@@ -5,7 +5,7 @@ KaFlow-Py Agents 核心 API
 参考 deer-flow 的代码风格，提供简洁易用的 API。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

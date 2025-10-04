@@ -1,0 +1,62 @@
+version: '3.8'
+
+# ============================================================================
+# KaFlow-Py Docker Compose 配置
+# 用于本地开发和测试环境
+# ============================================================================
+
+services:
+  # KaFlow-Py 后端服务
+  kaflow-py:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: kaflow-py:latest
+    container_name: kaflow-py
+    
+    # 增加共享内存，浏览器需要
+    shm_size: '2gb'
+    
+    ports:
+      - "8102:8102"
+    
+    environment:
+      # 服务配置
+      - KAFLOW_HOST=0.0.0.0
+      - KAFLOW_PORT=8102
+      - KAFLOW_RELOAD=false
+      - KAFLOW_LOG_LEVEL=info
+      
+      # LLM API Keys (从环境变量或 .env 文件读取)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      
+    
+    volumes:
+      # 挂载配置文件目录（可选，用于热更新配置）
+      - ../src/core/config:/app/src/core/config
+      
+      # 挂载日志目录
+      - ./logs:/app/logs
+      
+      # 挂载数据目录（如需持久化）
+      - ./data:/app/data
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8102/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    networks:
+      - kaflow-network
+
+networks:
+  kaflow-network:
+    driver: bridge
+    name: kaflow-network
+

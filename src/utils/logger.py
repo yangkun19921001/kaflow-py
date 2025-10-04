@@ -4,7 +4,7 @@ KaFlow-Py 日志记录模块
 提供统一的日志记录功能，支持多种输出格式和级别控制
 
 Author: DevYK  
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

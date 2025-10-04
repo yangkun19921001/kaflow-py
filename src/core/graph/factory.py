@@ -4,17 +4,17 @@ KaFlow-Py 节点工厂
 根据协议配置创建 LangGraph 节点函数
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
 
-from typing import Dict, Any, List, Callable, TypedDict, Optional
+from typing import Dict, Any, List, Callable, Optional
 from abc import ABC, abstractmethod
 import asyncio
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langgraph.graph import END
+from langgraph.graph import END, MessagesState
 
 from .parser import WorkflowNode, AgentInfo, ParsedProtocol
 from .io_resolver import get_io_resolver
@@ -27,9 +27,13 @@ from ...utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class GraphState(TypedDict):
-    """LangGraph 状态定义"""
-    messages: List[BaseMessage]
+class GraphState(MessagesState):
+    """LangGraph 状态定义
+    
+    继承自 MessagesState，自动为 messages 字段添加 add_messages reducer，
+    确保内存记忆功能正常工作（历史消息会被追加而不是替换）
+    """
+    # messages 字段由 MessagesState 提供，自动带 add_messages reducer
     user_input: str
     current_step: str
     tool_results: Dict[str, Any]
@@ -172,8 +176,8 @@ class AgentNodeBuilder(BaseNodeBuilder):
                 # 获取 Loop 配置
                 loop_config = agent_info.loop
                 
-                # 构建工具列表
-                tools = self._build_tools(agent_info.tools)
+                # 构建工具列表（传入 llm_config 用于 browser_use 等工具）
+                tools = self._build_tools(agent_info.tools, llm_config)
                 
                 # 构建 MCP 工具
                 mcp_tools = await self._build_mcp_tools(agent_info.mcp_servers)
@@ -251,6 +255,8 @@ class AgentNodeBuilder(BaseNodeBuilder):
                 # 更新状态
                 state["final_response"] = final_response
                 state["current_step"] = f"agent_completed:{node.name}"
+
+
                 
                 self.logger.info(f"Agent 节点 {node.name} 执行完成，响应长度: {len(final_response)}")
                 
@@ -295,9 +301,16 @@ class AgentNodeBuilder(BaseNodeBuilder):
         
         return llm_config
     
-    def _build_tools(self, tools_config: List[Dict[str, Any]]) -> List[Callable]:
-        """构建工具列表"""
+    def _build_tools(self, tools_config: List[Dict[str, Any]], llm_config: Any = None) -> List[Callable]:
+        """构建工具列表
+        
+        Args:
+            tools_config: 工具配置列表
+            llm_config: LLM 配置（用于 browser_use 等需要 LLM 的工具）
+        """
         tools = []
+        
+        # 基础工具映射
         tool_mapping = {
             "file_reader": file_reader,
             "file_writer": file_writer,
@@ -307,12 +320,74 @@ class AgentNodeBuilder(BaseNodeBuilder):
         }
         
         for tool_config in tools_config:
-            tool_name = tool_config.get("name") if isinstance(tool_config, dict) else tool_config
+            # 兼容字符串和字典两种格式
+            if isinstance(tool_config, str):
+                tool_name = tool_config
+                tool_type = None
+                tool_config_dict = {}
+            else:
+                tool_name = tool_config.get("name")
+                tool_type = tool_config.get("type", tool_name)  # type 用于特殊工具类型
+                tool_config_dict = tool_config.get("config", {})
+            
+            # 处理基础工具
             if tool_name in tool_mapping:
                 tools.append(tool_mapping[tool_name])
                 self.logger.debug(f"加载工具: {tool_name}")
+            
+            # 处理 browser_use 工具（需要 LLM）
+            elif tool_name == "browser_use":
+                try:
+                    from ...tools import create_browser_use_tool
+                    from ...llms import LLMManager
+                    
+                    # 创建 LLM 实例
+                    if llm_config is None:
+                        self.logger.warning(f"browser_use 工具需要 LLM 配置")
+                        continue
+                    
+                    llm_manager = LLMManager()
+                    llm = llm_manager.get_llm(llm_config)
+                    
+                    # 创建 browser_use 工具
+                    browser_tool = create_browser_use_tool(llm, **tool_config_dict)
+                    tools.append(browser_tool)
+                    
+                    self.logger.info(f"✅ 加载 browser_use 工具，配置: {tool_config_dict}")
+                    
+                except ImportError as e:
+                    self.logger.error(f"❌ 无法加载 browser_use 工具: {e}")
+                except Exception as e:
+                    self.logger.error(f"❌ 创建 browser_use 工具失败: {e}")
+            elif tool_name == "web_search":
+                try:
+                    from ...tools import web_search
+                    tools.append(web_search)
+                    self.logger.info(f"✅ 加载 web_search 工具，配置: {tool_config_dict}")
+                except ImportError as e:
+                    self.logger.error(f"❌ 无法加载 web_search 工具: {e}")
+                except Exception as e:
+                    self.logger.error(f"❌ 创建 web_search 工具失败: {e}")
+            elif tool_name == "ssh_remote_exec":
+                try:
+                    from ...tools import ssh_remote_exec
+                    tools.append(ssh_remote_exec)
+                    self.logger.info(f"✅ 加载 ssh_remote_exec 工具，配置: {tool_config_dict}")
+                except ImportError as e:
+                    self.logger.error(f"❌ 无法加载 ssh_remote_exec 工具: {e}")
+                except Exception as e:
+                    self.logger.error(f"❌ 创建 ssh_remote_exec 工具失败: {e}")
+            elif tool_name == "ssh_batch_exec":
+                try:
+                    from ...tools import ssh_batch_exec
+                    tools.append(ssh_batch_exec)
+                    self.logger.info(f"✅ 加载 ssh_batch_exec 工具，配置: {tool_config_dict}")
+                except ImportError as e:
+                    self.logger.error(f"❌ 无法加载 ssh_batch_exec 工具: {e}")
+                except Exception as e:
+                    self.logger.error(f"❌ 创建 ssh_batch_exec 工具失败: {e}")
             else:
-                self.logger.warning(f"未知工具: {tool_name}")
+                self.logger.warning(f"未知工具: {tool_name} (type: {tool_type})")
         
         return tools
     
@@ -655,10 +730,7 @@ class AgentNodeBuilder(BaseNodeBuilder):
             str: Agent 响应
         """
         if agent_type == AgentType.REACT_AGENT:
-            # ReAct Agent 使用消息格式
-            if not state.get("messages"):
-                state["messages"] = [HumanMessage(content=input_text)]
-            
+
             self.logger.debug("🔧 使用异步调用执行 ReAct Agent")
             response = await agent.ainvoke({"messages": state["messages"]}, config={"recursion_limit": 50})
             

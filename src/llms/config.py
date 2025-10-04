@@ -5,7 +5,7 @@ KaFlow-Py LLM 配置模块
 简化的配置系统，只支持参数传入，不依赖文件或环境变量。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

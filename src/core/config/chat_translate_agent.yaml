@@ -1,0 +1,205 @@
+# =================================================================
+# KaFlow-Py 翻译助手配置
+# 智能语言检测和双语翻译，支持中英互译
+# =================================================================
+
+id: 5
+
+# =================================================================
+# 协议版本与元信息
+# =================================================================
+protocol:
+  name: "智能翻译助手"
+  version: "1.0.0"
+  schema_version: "2025.09.10"
+  description: "智能翻译助手，自动检测语言并提供中英双语翻译，像电影字幕一样呈现"
+  author: "DevYK"
+  license: "MIT"
+
+# =================================================================
+# 全局配置
+# =================================================================
+global_config:
+  # 运行时配置
+  runtime:
+    timeout: 60
+    max_retries: 2
+    parallel_limit: 1
+    debug_mode: false
+    trace_enabled: true
+    checkpoint_enabled: false
+
+  # 日志配置
+  logging:
+    level: "INFO"
+    format: "json"
+    output: "stdout"
+    file_path: "./logs/translate_agent.log"
+    max_size: "50MB"
+    max_files: 5
+
+  # 内存配置
+  # 记忆存储配置
+  memory:                                    # 记忆存储配置 (可选)
+    enabled: true                            # 启用记忆存储 (可选)
+    provider: "memory"                       # 存储提供商: memory|redis|postgresql|mongodb|sqlite (可选)
+
+# =================================================================
+# Agent 配置
+# =================================================================
+agents:
+  translate_agent:
+    name: "translate_agent"
+    type: "react_agent"
+    description: "智能翻译助手，自动检测语言并提供双语翻译"
+    enabled: true
+    
+    # 模型配置
+    llm:                                         # Agent 专用 LLM 配置
+      provider: "deepseek"
+      base_url: "https://api.ppinfra.com/v3/openai"
+      api_key: "${DEEPSEEK_API_KEY}"
+      model: "deepseek/deepseek-v3-0324"
+      temperature: 0.3
+      max_tokens: 4096
+      timeout: 60
+
+    # System Prompt
+    system_prompt: |
+      你是一个专业的翻译助手，具有以下能力：
+      
+      **核心功能**：
+      1. 自动检测用户输入的语言
+      2. 提供准确、自然的翻译
+      3. 以双语字幕形式呈现结果
+      
+      **翻译规则**：
+      - 如果输入是中文，翻译成英文
+      - 如果输入是英文，翻译成中文
+      - 如果输入是其他语言，同时翻译成中文和英文
+      - 保持原文的语气、风格和专业性
+      - 对于专有名词、品牌名称等，保持原文或提供通用译法
+      
+      **输出格式（严格遵守）**：
+      请按照以下 Markdown 格式输出，确保格式清晰：
+      
+      ```
+      [原文内容]
+      [翻译内容]
+      ```
+      
+      **注意事项**：
+      - 不要添加额外的解释或评论
+      - 直接提供翻译结果
+      - 保持简洁明了
+      - 如果原文有多段，保持段落结构
+      - 对于短句或单词，提供最常用的翻译
+      
+      **示例 1（中译英）**：
+      用户输入：你好，世界！
+      你的输出：
+      ```
+      你好，世界！
+      
+      Hello, World!
+      ```
+      
+      **示例 2（英译中）**：
+      用户输入：How are you doing today?
+      你的输出：
+      ```
+      How are you doing today?
+      
+      你今天过得怎么样？
+      ```
+      
+      现在开始工作，专注于提供高质量的翻译服务！
+
+    # 工具配置（翻译助手不需要外部工具）
+    tools: []
+
+    # 思考链配置
+    thought_chain:
+      max_iterations: 1
+      enable_reflection: false
+      
+    # 输出配置
+    output:
+      format: "markdown"
+      include_metadata: false
+      streaming: true
+
+# =================================================================
+# 工作流配置
+# =================================================================
+workflow:
+  name: "智能翻译助手工作流"
+  version: "1.0.0"
+  description: "自动检测语言并提供中英双语翻译，像电影字幕一样呈现"
+  author: "DevYK"
+  schema_version: "2025.09.10"
+  
+  settings:
+    timeout: 60
+    max_retries: 2
+    debug_mode: false
+
+  # =================================================================
+  # 节点定义
+  # =================================================================
+  nodes:
+    - name: "start_node"
+      type: "start"
+      description: "工作流开始节点"
+      position:
+        x: 100
+        y: 100
+      outputs:
+        - name: "user_input"
+          type: "string"
+          description: "用户输入的文本内容"
+
+    - name: "translate_agent"
+      type: "agent"
+      description: "智能翻译 Agent"
+      agent_ref: "translate_agent"
+      position:
+        x: 300
+        y: 100
+      
+      inputs:
+        - name: "user_message"
+          type: "string"
+          required: true
+          source: "start_node.user_input"
+          description: "用户输入的待翻译文本"
+      
+      outputs:
+        - name: "response"
+          type: "string"
+          description: "翻译结果（双语字幕格式）"
+
+    - name: "end_node"
+      type: "end"
+      description: "工作流结束节点"
+      position:
+        x: 500
+        y: 100
+      inputs:
+        - name: "final_response"
+          type: "string"
+          required: true
+          source: "translate_agent.response"
+          description: "最终翻译结果"
+
+  # =================================================================
+  # 边定义
+  # =================================================================
+  edges:
+    - from: "start_node"
+      to: "translate_agent"
+      description: "传递用户输入到翻译Agent"
+      
+    - from: "translate_agent"
+      to: "end_node"
+      description: "输出最终翻译结果"

@@ -5,7 +5,7 @@ KaFlow-Py 图管理器 - 优化版本
 支持高级流式处理，借鉴 agent-template 的优秀实践
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
@@ -15,6 +15,7 @@ from typing import Dict, Any, List, Optional, Union
 from pathlib import Path
 
 from langgraph.graph.state import CompiledStateGraph
+from langchain_core.messages import AIMessageChunk, BaseMessage, ToolMessage, HumanMessage, AIMessage
 
 from .builder import LangGraphAutoBuilder, GraphExecutionResult, GraphStreamEvent
 from .stream import StreamMessageProcessor
@@ -222,6 +223,7 @@ class GraphManager:
     async def execute_graph_stream(self, 
                                   graph_id: str, 
                                   user_input: str,
+                                  messages: List[Any],
                                   thread_id: str = None,
                                   **kwargs):
         """
@@ -233,6 +235,7 @@ class GraphManager:
         Args:
             graph_id: 图ID
             user_input: 用户输入
+            messages: 消息列表
             thread_id: 线程ID（可选）
             **kwargs: 其他参数
             
@@ -253,10 +256,12 @@ class GraphManager:
             )
             return
         
+        current_message = HumanMessage(role="user", content=user_input)
+
         # 构建初始状态
         initial_state: GraphState = {
             "user_input": user_input,
-            "messages": [],
+            "messages": [current_message] or [],
             "current_step": "init",
             "tool_results": {},
             "final_response": "",

@@ -8,7 +8,7 @@ KaFlow-Py MCP 模块
 - 统一的配置和错误处理
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

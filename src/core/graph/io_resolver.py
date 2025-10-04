@@ -4,7 +4,7 @@ KaFlow-Py 输入输出解析器
 提供通用的节点输入输出解析功能，基于 YAML 配置自动处理数据流。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
@@ -144,7 +144,7 @@ class InputOutputResolver:
             
             # 如果还有其他输入（如历史消息），构建上下文
             if len(resolved_inputs) > 1:
-                context_parts = [f"**用户请求**: {user_input}"]
+                context_parts = [f"{user_input}"]
                 
                 # 添加其他输入作为上下文
                 for key, value in resolved_inputs.items():

@@ -4,7 +4,7 @@ KaFlow-Py LangGraph 自动构建器
 使用真正的 LangGraph API (add_node, add_edge, compile) 自动构建图结构
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
@@ -14,6 +14,7 @@ from pathlib import Path
 
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.checkpoint.memory import MemorySaver
 
 from .parser import ProtocolParser, ParsedProtocol, WorkflowEdge
 from .factory import NodeFactory, GraphState, NodeFunction
@@ -109,9 +110,16 @@ class LangGraphAutoBuilder:
         graph.set_entry_point(entry_point)
         self.logger.debug(f"设置入口点: {entry_point}")
         
+        # 创建 checkpointer（如果配置了内存记忆）
+        checkpointer = self._create_checkpointer(protocol)
+        
         # 编译图
-        compiled_graph = graph.compile()
-        self.logger.info(f"LangGraph 编译完成: {protocol.protocol.name}")
+        if checkpointer:
+            compiled_graph = graph.compile(checkpointer=checkpointer)
+            self.logger.info(f"LangGraph 编译完成（已启用内存记忆）: {protocol.protocol.name}")
+        else:
+            compiled_graph = graph.compile()
+            self.logger.info(f"LangGraph 编译完成: {protocol.protocol.name}")
         
         return compiled_graph
     
@@ -300,6 +308,45 @@ class LangGraphAutoBuilder:
             # 注意：LangGraph不支持动态更新条件边，所以我们需要重新构建
             self.logger.debug(f"更新节点 {source_node} 的条件路径映射")
             # 这里可能需要重新构建图，但为了简化，我们假设所有条件边在初始构建时就定义好了
+    
+    def _create_checkpointer(self, protocol: ParsedProtocol) -> Optional[MemorySaver]:
+        """
+        根据配置创建 checkpointer
+        
+        Args:
+            protocol: 解析后的协议
+            
+        Returns:
+            MemorySaver 实例或 None
+        """
+        # 检查是否有 global_config 和 memory 配置
+        if not protocol.global_config or not protocol.global_config.memory:
+            self.logger.debug("未配置内存记忆")
+            return None
+        
+        memory_config = protocol.global_config.memory
+        
+        # 检查是否启用
+        enabled = memory_config.get("enabled", False)
+        if not enabled:
+            self.logger.debug("内存记忆未启用")
+            return None
+        
+        # 获取 provider 类型
+        provider = memory_config.get("provider", "memory")
+        
+        # 根据 provider 类型创建对应的 checkpointer
+        if provider == "memory":
+            self.logger.info("✅ 启用内存记忆存储 (InMemorySaver)")
+            return MemorySaver()
+        else:
+            # 其他类型的 provider 暂不支持
+            self.logger.warning(
+                f"⚠️ 不支持的记忆存储类型: {provider}。"
+                f"当前仅支持 'memory' (InMemorySaver)。"
+                f"支持的类型: memory | redis | postgresql | mongodb | sqlite (即将支持)"
+            )
+            return None
     
     def _find_entry_point(self, protocol: ParsedProtocol) -> str:
         """查找入口点"""

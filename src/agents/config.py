@@ -4,7 +4,7 @@ KaFlow-Py Agents 配置模块
 定义 Agent 相关的配置类和枚举。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

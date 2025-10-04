@@ -4,7 +4,7 @@ KaFlow-Py 配置加载器模块
 提供YAML和JSON配置文件的加载、缓存和环境变量替换功能
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com  
 Github: https://github.com/yangkun19921001
 """

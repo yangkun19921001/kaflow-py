@@ -209,4 +209,9 @@ __marimo__/
 
 *.lock
 *.python-version
+
+# 忽略所有 yaml 文件
 *.yaml
+
+# 但不忽略 src/core/config/ 目录下的 yaml 配置文件
+!src/core/config/*.yaml

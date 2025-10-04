@@ -4,7 +4,7 @@ KaFlow-Py Agents 异常处理模块
 定义 Agent 相关的异常类。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

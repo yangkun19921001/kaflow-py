@@ -4,7 +4,7 @@ KaFlow-Py 基础工具函数
 实现文件操作、系统信息查询、数学计算、时间查询等基础工具
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

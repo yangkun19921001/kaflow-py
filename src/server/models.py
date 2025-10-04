@@ -4,7 +4,7 @@ KaFlow-Py 服务端请求和响应模型
 定义 FastAPI 接口的请求和响应数据结构
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
@@ -103,6 +103,26 @@ class MCPSettings(BaseModel):
     servers: List[Dict[str, Any]] = Field(default_factory=list, description="MCP服务器列表")
 
 
+class MCPServerMetadataRequest(BaseModel):
+    """MCP服务器元数据请求模型"""
+    transport: str = Field(..., description="MCP服务器连接类型 (stdio 或 sse)")
+    command: Optional[str] = Field(None, description="执行命令 (stdio类型必需)")
+    args: Optional[List[str]] = Field(None, description="命令参数 (stdio类型)")
+    url: Optional[str] = Field(None, description="SSE服务器URL (sse类型必需)")
+    env: Optional[Dict[str, str]] = Field(None, description="环境变量")
+    timeout_seconds: Optional[int] = Field(None, description="可选的超时时间（秒）")
+
+
+class MCPServerMetadataResponse(BaseModel):
+    """MCP服务器元数据响应模型"""
+    transport: str = Field(..., description="MCP服务器连接类型")
+    command: Optional[str] = Field(None, description="执行命令")
+    args: Optional[List[str]] = Field(None, description="命令参数")
+    url: Optional[str] = Field(None, description="SSE服务器URL")
+    env: Optional[Dict[str, str]] = Field(None, description="环境变量")
+    tools: List[Dict[str, Any]] = Field(default_factory=list, description="MCP服务器提供的可用工具列表")
+
+
 class ExtendedChatStreamRequest(ChatStreamRequest):
     """扩展的聊天流式请求模型（兼容更多参数）"""
     resources: List[Resource] = Field(default_factory=list, description="资源列表")
@@ -128,5 +148,7 @@ __all__ = [
     "ErrorResponse",
     "ReloadResponse",
     "Resource",
-    "MCPSettings"
+    "MCPSettings",
+    "MCPServerMetadataRequest",
+    "MCPServerMetadataResponse"
 ] 

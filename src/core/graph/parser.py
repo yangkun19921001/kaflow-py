@@ -4,7 +4,7 @@ KaFlow-Py 协议解析器
 解析 KaFlow 协议模板，提取工作流、Agent 和 LLM 配置
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

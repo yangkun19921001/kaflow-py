@@ -4,7 +4,7 @@ KaFlow-Py LLMs 异常定义
 定义 LLM 模块相关的异常类，提供清晰的错误信息和错误处理。
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """

@@ -5,7 +5,7 @@ KaFlow-Py FastAPI 服务端应用
 实现基于 YAML 配置文件中 id 字段的按需加载和缓存机制
 
 Author: DevYK
-WeChat: DevYK
+微信公众号: DevYK
 Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
@@ -21,8 +21,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from .models import ChatStreamRequest, ExtendedChatStreamRequest, HealthResponse
+from .models import (
+    ChatStreamRequest, 
+    ExtendedChatStreamRequest, 
+    HealthResponse,
+    MCPServerMetadataRequest,
+    MCPServerMetadataResponse
+)
 from ..core.graph import get_graph_manager, GraphManager
+from ..mcp.mcp import load_mcp_tools
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -160,6 +167,7 @@ async def chat_stream(request: ChatStreamRequest):
             _chat_stream_generator(
                 config_id=config_id,
                 user_input=user_input,
+                messages=request.messages,
                 thread_id=thread_id,
                 custom_config=request.custom_config or {}
             ),
@@ -173,78 +181,11 @@ async def chat_stream(request: ChatStreamRequest):
         raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_DETAIL)
 
 
-@app.post("/api/chat/stream/extended")
-async def chat_stream_extended(request: ExtendedChatStreamRequest):
-    """
-    扩展聊天流式接口 - 兼容更多参数
-    
-    Args:
-        request: 扩展聊天流式请求
-        
-    Returns:
-        StreamingResponse: SSE流式响应
-    """
-    try:
-        config_id = str(request.config_id)  # 确保ID是字符串
-        
-        # 确保图已加载
-        if not _ensure_graph_loaded(config_id):
-            _load_config_file_mappings()
-            available_ids = list(_config_file_cache.keys())
-            raise HTTPException(
-                status_code=404, 
-                detail=f"配置ID {config_id} 不存在或加载失败。可用配置ID: {available_ids}"
-            )
-        
-        logger.info(f"使用扩展配置ID: {config_id}")
-        
-        # 生成线程ID
-        thread_id = request.thread_id
-        if thread_id == "__default__":
-            thread_id = str(uuid4())
-        
-        # 构建用户输入
-        user_input = request.messages[-1].content if request.messages else ""
-        
-        # 构建扩展配置
-        extended_config = {
-            "resources": [r.dict() for r in request.resources],
-            "max_plan_iterations": request.max_plan_iterations,
-            "max_step_num": request.max_step_num,
-            "max_search_results": request.max_search_results,
-            "auto_accepted_plan": request.auto_accepted_plan,
-            "interrupt_feedback": request.interrupt_feedback,
-            "mcp_settings": request.mcp_settings.dict() if request.mcp_settings else {},
-            "enable_background_investigation": request.enable_background_investigation,
-            "report_style": request.report_style,
-            "enable_deep_thinking": request.enable_deep_thinking,
-        }
-        
-        # 合并自定义配置
-        if request.custom_config:
-            extended_config.update(request.custom_config)
-        
-        # 返回流式响应
-        return StreamingResponse(
-            _chat_stream_generator(
-                config_id=config_id,
-                user_input=user_input,
-                thread_id=thread_id,
-                custom_config=extended_config
-            ),
-            media_type="text/event-stream",
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"扩展聊天流式接口错误: {e}")
-        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_DETAIL)
-
 
 async def _chat_stream_generator(
     config_id: str,
     user_input: str,
+    messages: List[Any],
     thread_id: str,
     custom_config: Dict[str, Any] = None
 ):
@@ -254,6 +195,7 @@ async def _chat_stream_generator(
     Args:
         config_id: 配置ID
         user_input: 用户输入
+        messages: 消息列表
         thread_id: 线程ID
         custom_config: 自定义配置
     """
@@ -264,6 +206,7 @@ async def _chat_stream_generator(
         async for sse_event_string in manager.execute_graph_stream(
             graph_id=config_id,
             user_input=user_input,
+            messages=messages,
             thread_id=thread_id,
             **(custom_config or {})
         ):
@@ -373,6 +316,63 @@ async def get_version():
         "author": "DevYK",
         "timestamp": datetime.now().isoformat()
     }
+
+
+@app.post("/api/mcp/server/metadata", response_model=MCPServerMetadataResponse)
+async def mcp_server_metadata(request: MCPServerMetadataRequest):
+    """
+    获取 MCP 服务器元数据和工具列表
+    
+    该接口用于连接到 MCP 服务器并获取其提供的工具信息
+    
+    Args:
+        request: MCP 服务器元数据请求
+        
+    Returns:
+        MCPServerMetadataResponse: 包含服务器信息和工具列表
+        
+    Raises:
+        HTTPException: 当连接失败或参数错误时
+    """
+    try:
+        logger.info(f"接收到 MCP 服务器元数据请求: transport={request.transport}")
+        
+        # 设置默认超时时间
+        timeout = request.timeout_seconds if request.timeout_seconds is not None else 300
+        
+        # 使用 mcp 模块中的 load_mcp_tools 函数加载工具
+        tools = await load_mcp_tools(
+            server_type=request.transport,
+            command=request.command,
+            args=request.args,
+            url=request.url,
+            env=request.env,
+            timeout_seconds=timeout
+        )
+        
+        logger.info(f"成功加载 {len(tools)} 个工具从 MCP 服务器")
+        
+        # 构建响应
+        response = MCPServerMetadataResponse(
+            transport=request.transport,
+            command=request.command,
+            args=request.args,
+            url=request.url,
+            env=request.env,
+            tools=tools
+        )
+        
+        return response
+        
+    except HTTPException:
+        # 重新抛出 HTTPException
+        raise
+    except Exception as e:
+        logger.exception(f"MCP 服务器元数据接口错误: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"获取 MCP 服务器元数据失败: {str(e)}"
+        )
 
 
 # 启动时事件
