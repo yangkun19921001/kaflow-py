@@ -95,7 +95,7 @@ agents:
         type: "browser_use"  # 特殊标记，表示使用 browser_use tool
         description: "使用 AI 控制浏览器执行自动化任务"
         config:
-          headless: true  # 是否无头模式
+          headless: false  # 是否无头模式
           disable_security: false
           window_w: 1280
           window_h: 1100
@@ -247,76 +247,3 @@ workflow:
     - from: "summary_agent"
       to: "end_node"
       description: "输出最终总结报告"
-
-
-# =================================================================
-# 使用说明
-# =================================================================
-usage_notes: |
-  浏览器工具自动化使用说明：
-  
-  1. 功能特点：
-     - 将 browser-use 封装为通用工具
-     - 使用 ReAct Agent 智能调用
-     - 支持复杂的推理和工具组合
-     - 自动总结和分析结果
-     - 可与其他工具混合使用
-  
-  2. 环境准备：
-     - 安装依赖：uv pip install browser-use playwright
-     - 安装浏览器：uvx playwright install chromium --with-deps --no-shell
-     - 设置环境变量：DEEPSEEK_API_KEY 或 OPENAI_API_KEY
-  
-  3. 使用示例：
-     # 示例任务 1: GitHub 项目信息
-     user_query: "browser-use 项目有多少 star？"
-     
-     # 示例任务 2: 股票价格查询
-     user_query: "今日特斯拉股价怎么样？"
-     
-     # 示例任务 3: 搜索和导航
-     user_query: "帮我搜索 Python 浏览器自动化的最新教程"
-     
-     # 示例任务 4: 不需要浏览器
-     user_query: "1+1等于几？"  # Agent 会判断不需要使用浏览器工具
-  
-  4. 启动方式：
-     python main.py --config src/core/config/chat_browser_tool.yaml
-  
-  5. 优势：
-     - 更灵活：ReAct Agent 可以智能决策是否使用浏览器
-     - 更通用：browser_use 作为工具，可以在任何 Agent 中使用
-     - 更强大：可以与其他工具组合使用
-     - 更智能：支持多步推理和任务分解
-  
-  6. 工具配置：
-     在 agents.browser_agent.tools 中配置 browser_use：
-     - headless: 是否无头模式（false=显示浏览器窗口）
-     - disable_security: 是否禁用安全特性
-     - window_w/window_h: 浏览器窗口大小
-     - save_recording_path: 录屏保存路径
-  
-  7. 高级用法：
-     - 可以添加更多工具到 browser_agent（如 calculator, file_reader 等）
-     - Agent 会智能选择合适的工具组合完成任务
-     - 支持复杂的多步骤任务分解和执行
-  
-  8. Python API 使用：
-     ```python
-     from tools import create_browser_use_tool
-     from langchain_openai import ChatOpenAI
-     
-     llm = ChatOpenAI(model="gpt-4")
-     browser_tool = create_browser_use_tool(llm, headless=False)
-     
-     # 在 ReAct Agent 中使用
-     from langgraph.prebuilt import create_react_agent
-     agent = create_react_agent(model=llm, tools=[browser_tool])
-     result = await agent.ainvoke({"messages": [{"role": "user", "content": "访问 github.com"}]})
-     ```
-  
-  9. 注意事项：
-     - 浏览器任务通常需要 30-120 秒
-     - 建议先用简单任务测试
-     - 调试时设置 headless=false 观察浏览器操作
-     - 某些网站可能有反爬虫机制 

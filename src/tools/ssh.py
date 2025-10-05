@@ -21,7 +21,7 @@ try:
     import paramiko
 except ImportError:
     raise ImportError(
-        "请安装 paramiko 库以使用 SSH 功能: pip install paramiko"
+        "请安装 paramiko 库以使用 SSH 功能: uv pip install paramiko"
     )
 
 
