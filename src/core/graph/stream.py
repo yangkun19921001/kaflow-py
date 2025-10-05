@@ -10,6 +10,7 @@ Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
 
+import asyncio
 import json
 import logging
 from typing import Dict, Any, List, Optional, AsyncGenerator, cast, Tuple
@@ -263,6 +264,9 @@ class StreamMessageProcessor:
         # })
         
         try:
+            # 获取当前任务，用于检测取消
+            current_task = asyncio.current_task()
+            event_count = 0
             # 完全复制app.py的astream处理逻辑
             async for agent, mode, event_data in compiled_graph.astream(
                 initial_state,
@@ -272,6 +276,18 @@ class StreamMessageProcessor:
                 stream_mode=["messages"],
                 subgraphs=True,
             ):
+                # 检测任务是否被取消
+                if current_task and current_task.cancelled():
+                    logger.info(f"🛑 检测到任务取消，已处理 {event_count} 个事件")
+                    yield self._make_event("cancelled", {
+                        "thread_id": self.thread_id,
+                        "graph_id": self.graph_id,
+                        "message": "生成已停止",
+                        "events_processed": event_count
+                    })
+                    break
+                
+                event_count += 1
                 # logger.debug(f"🔍 收到 agent: {agent}, mode: {mode}, event_data: {event_data}")
                 
                 # 处理中断事件 - 完全复制app.py逻辑
@@ -433,6 +449,16 @@ class StreamMessageProcessor:
             #     "status": "completed", 
             #     "graph_id": self.graph_id
             # })
+            
+        except asyncio.CancelledError:
+            self.logger.info(f"🛑 流式处理被取消 (graph_id: {self.graph_id})")
+            yield self._make_event("cancelled", {
+                "thread_id": self.thread_id,
+                "graph_id": self.graph_id,
+                "message": "用户已取消生成",
+                "events_processed": event_count if 'event_count' in locals() else 0
+            })
+            # 不再重新抛出异常，优雅地结束
             
         except Exception as e:
             self.logger.error(f"流式处理失败: {e}")

@@ -10,6 +10,7 @@ Email: yang1001yk@gmail.com
 Github: https://github.com/yangkun19921001
 """
 
+import asyncio
 import json
 import yaml
 from datetime import datetime
@@ -202,6 +203,9 @@ async def _chat_stream_generator(
     try:
         manager = get_graph_manager()
         
+        logger.info(f"开始流式生成 (config_id: {config_id}, thread_id: {thread_id})")
+        event_count = 0
+        
         # 使用图管理器的流式执行
         async for sse_event_string in manager.execute_graph_stream(
             graph_id=config_id,
@@ -211,11 +215,19 @@ async def _chat_stream_generator(
             **(custom_config or {})
         ):
             # 正确：直接 yield 已格式化的 SSE 字符串
+            event_count += 1
             yield sse_event_string
+        
+        logger.info(f"流式生成完成 (config_id: {config_id}, events: {event_count})")
             
+    except asyncio.CancelledError:
+        logger.info(f"🛑 流式生成被取消 (config_id: {config_id}, thread_id: {thread_id})")
+        # 客户端断开连接时，不发送任何内容，直接结束
+        
     except Exception as e:
         logger.error(f"流式生成器错误: {e}")
-        yield f"event: error\ndata: {json.dumps(e, ensure_ascii=False)}\n\n"
+        error_data = {"error": str(e), "config_id": config_id}
+        yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
 
 
 @app.get("/api/configs")
