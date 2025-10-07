@@ -12,12 +12,86 @@ Reference: https://github.com/co-browser/browser-use-mcp-server
 """
 
 import asyncio
+import os
 from typing import Optional, Dict, Any
 from langchain_core.tools import tool
 from ..utils.logger import get_logger
 from ..llms.config import LLMProviderType
 
 logger = get_logger("BrowserUseTool")
+
+
+def _is_running_in_docker() -> bool:
+    """
+    检测当前是否在 Docker 容器中运行
+    
+    检测方法：
+    1. 检查 /.dockerenv 文件是否存在
+    2. 检查 /proc/1/cgroup 中是否包含 docker/containerd
+    3. 检查环境变量
+    
+    Returns:
+        bool: True 表示在 Docker 中运行，False 表示不在
+    """
+    # 方法 1: 检查 /.dockerenv 文件
+    if os.path.exists('/.dockerenv'):
+        return True
+    
+    # 方法 2: 检查 /proc/1/cgroup
+    try:
+        with open('/proc/1/cgroup', 'rt') as f:
+            content = f.read()
+            if 'docker' in content or 'containerd' in content:
+                return True
+    except Exception:
+        pass
+    
+    # 方法 3: 检查环境变量
+    docker_env_vars = [
+        'DOCKER_CONTAINER',
+        'KUBERNETES_SERVICE_HOST',  # K8s 环境
+    ]
+    for env_var in docker_env_vars:
+        if os.getenv(env_var):
+            return True
+    
+    return False
+
+
+def _normalize_browser_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    规范化浏览器配置，处理 Docker 环境的特殊要求
+    
+    在 Docker 环境中：
+    - 只能使用无头模式（headless=True）
+    - 如果配置了 headless=False，会被强制改为 True 并输出警告
+    
+    Args:
+        config: 原始浏览器配置
+        
+    Returns:
+        规范化后的配置
+    """
+    normalized_config = config.copy()
+    
+    # 检测是否在 Docker 环境
+    is_docker = _is_running_in_docker()
+    
+    if is_docker:
+        original_headless = normalized_config.get("headless", False)
+        
+        # Docker 环境只能使用无头模式
+        if not original_headless:
+            logger.warning("⚠️  Docker 环境检测：当前运行在 Docker 容器中")
+            logger.warning("⚠️  Docker 环境限制：浏览器只能使用无头模式（headless=True）")
+            logger.warning(f"⚠️  强制修改：headless={original_headless} -> headless=True")
+            normalized_config["headless"] = True
+        else:
+            logger.info("✅ Docker 环境检测：已配置无头模式，符合 Docker 环境要求")
+    else:
+        logger.debug(f"ℹ️  非 Docker 环境，使用配置的 headless 模式: {normalized_config.get('headless', False)}")
+    
+    return normalized_config
 
 
 def _extract_llm_config(llm: Any) -> Dict[str, Any]:
@@ -310,6 +384,9 @@ def create_browser_use_tool(llm: Any, **browser_config):
         "save_recording_path": browser_config.get("save_recording_path", None),
     }
     
+    # 规范化配置（处理 Docker 环境的限制）
+    config = _normalize_browser_config(config)
+    
     @tool
     async def browser_use(task: str) -> str:
         """
@@ -414,6 +491,9 @@ def create_browser_use_with_context_tool(llm: Any, **browser_config):
     # 转换 LLM 为 browser-use 的 wrapper
     browser_llm = _create_browser_use_llm(llm)
     
+    # 规范化配置（处理 Docker 环境的限制）
+    normalized_config = _normalize_browser_config(browser_config)
+    
     # 共享的浏览器实例
     browser_instance = {"browser": None, "agent": None}
     
@@ -458,8 +538,8 @@ def create_browser_use_with_context_tool(llm: Any, **browser_config):
             # 创建或复用浏览器实例
             if browser_instance["browser"] is None:
                 browser_instance["browser"] = Browser(
-                    headless=browser_config.get("headless", False),
-                    disable_security=browser_config.get("disable_security", False),
+                    headless=normalized_config.get("headless", False),
+                    disable_security=normalized_config.get("disable_security", False),
                 )
                 logger.info("🌐 New browser instance created")
             

@@ -41,7 +41,7 @@ global_config:
   # 内存配置
   # 记忆存储配置
   memory:                                    # 记忆存储配置 (可选)
-    enabled: true                            # 启用记忆存储 (可选)
+    enabled: false                            # 启用记忆存储 (可选)
     provider: "memory"                       # 存储提供商: memory|redis|postgresql|mongodb|sqlite (可选)
 
 # =================================================================
