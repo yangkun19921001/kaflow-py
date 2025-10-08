@@ -14,10 +14,10 @@ from pathlib import Path
 
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.checkpoint.memory import MemorySaver
 
 from .parser import ProtocolParser, ParsedProtocol, WorkflowEdge
 from .factory import NodeFactory, GraphState, NodeFunction
+from ...memory import create_checkpointer
 from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -116,7 +116,9 @@ class LangGraphAutoBuilder:
         # 编译图
         if checkpointer:
             compiled_graph = graph.compile(checkpointer=checkpointer)
-            self.logger.info(f"LangGraph 编译完成（已启用内存记忆）: {protocol.protocol.name}")
+            # memory 是字典，使用 get() 访问
+            provider = protocol.global_config.memory.get('provider', 'memory')
+            self.logger.info(f"LangGraph 编译完成（已启用：{provider} 记忆）: {protocol.protocol.name}")
         else:
             compiled_graph = graph.compile()
             self.logger.info(f"LangGraph 编译完成: {protocol.protocol.name}")
@@ -309,7 +311,7 @@ class LangGraphAutoBuilder:
             self.logger.debug(f"更新节点 {source_node} 的条件路径映射")
             # 这里可能需要重新构建图，但为了简化，我们假设所有条件边在初始构建时就定义好了
     
-    def _create_checkpointer(self, protocol: ParsedProtocol) -> Optional[MemorySaver]:
+    def _create_checkpointer(self, protocol: ParsedProtocol):
         """
         根据配置创建 checkpointer
         
@@ -317,7 +319,7 @@ class LangGraphAutoBuilder:
             protocol: 解析后的协议
             
         Returns:
-            MemorySaver 实例或 None
+            BaseCheckpointer 实例或 None
         """
         # 检查是否有 global_config 和 memory 配置
         if not protocol.global_config or not protocol.global_config.memory:
@@ -335,18 +337,34 @@ class LangGraphAutoBuilder:
         # 获取 provider 类型
         provider = memory_config.get("provider", "memory")
         
-        # 根据 provider 类型创建对应的 checkpointer
-        if provider == "memory":
-            self.logger.info("✅ 启用内存记忆存储 (InMemorySaver)")
-            return MemorySaver()
+        # 获取连接配置
+        connection_config = memory_config.get("connection", {})
+        
+        # 使用工厂创建 checkpointer
+        self.logger.info(f"🔧 创建 {provider} checkpointer...")
+        checkpointer = create_checkpointer(provider, connection_config)
+        
+        if checkpointer:
+            # 同步调用 setup（如果需要）
+            import asyncio
+            try:
+                # 尝试在现有事件循环中运行
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果循环正在运行，创建后台任务
+                    asyncio.create_task(checkpointer.setup())
+                else:
+                    # 如果没有运行的循环，同步执行
+                    loop.run_until_complete(checkpointer.setup())
+            except RuntimeError:
+                # 没有事件循环，创建新的
+                asyncio.run(checkpointer.setup())
+            
+            self.logger.info(f"✅ {provider} checkpointer 创建并设置成功")
         else:
-            # 其他类型的 provider 暂不支持
-            self.logger.warning(
-                f"⚠️ 不支持的记忆存储类型: {provider}。"
-                f"当前仅支持 'memory' (InMemorySaver)。"
-                f"支持的类型: memory | redis | postgresql | mongodb | sqlite (即将支持)"
-            )
-            return None
+            self.logger.warning(f"⚠️  {provider} checkpointer 创建失败")
+        
+        return checkpointer
     
     def _find_entry_point(self, protocol: ParsedProtocol) -> str:
         """查找入口点"""

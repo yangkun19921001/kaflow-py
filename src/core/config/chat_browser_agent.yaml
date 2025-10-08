@@ -41,9 +41,16 @@ global_config:
   # 内存配置
   # 记忆存储配置
   memory:                                    # 记忆存储配置 (可选)
-    enabled: false                            # 启用记忆存储 (可选)
-    provider: "memory"                       # 存储提供商: memory|redis|postgresql|mongodb|sqlite (可选)
-
+    enabled: true                            # 启用记忆存储 (可选)
+    provider: "mongodb"                      # 存储提供商: memory|redis|postgresql|mongodb|sqlite (可选)
+    connection:                              # 连接配置 (可选)
+      host: "10.1.16.4"                      # 主机地址 (可选)
+      port: 27017                            # MongoDB 端口号 (默认 27017)
+      database: "kaflow"                     # 数据库 db 名称 (可选)
+      collection: "checkpoints"              # 集合名称 (可选，默认 checkpoints)
+      username: "test"                           # 用户名 (可选)
+      password: "${MEMORY_PASSWORD}"         # 密码 (可选，支持环境变量)
+      auth_source: "paidb"                   # 认证数据库 (可选，默认 admin)
 # =================================================================
 # Agent 配置
 # =================================================================

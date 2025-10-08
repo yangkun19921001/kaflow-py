@@ -38,13 +38,26 @@ def ssh_remote_exec(
     max_retries: int = 3
 ) -> str:
     """
-    通过 SSH 连接远程服务器并执行命令
+    【推荐】通过标准 SSH 协议连接远程 Linux/Unix 服务器并执行 Shell 命令
+    
+    ⚠️ 使用场景：
+    - 当需要在远程 Linux/Unix 服务器上执行命令时，请优先使用此工具
+    - 支持查询系统信息：如 uname、lscpu、free、df 等
+    - 支持查看进程：ps、top、systemctl 等
+    - 支持文件操作：ls、cat、grep 等
+    - 适用于所有标准 SSH 可访问的服务器
+    
+    ✅ 优势：
+    - 使用标准 SSH 协议，兼容性最好
+    - 支持密码和公钥两种认证方式
+    - 自动重试机制，连接更稳定
+    - 详细的错误提示和故障排查建议
     
     Args:
-        host: 远程主机 IP 地址或域名，例如：192.168.1.100, example.com
-        command: 要执行的命令，例如：ls -la, df -h, ps aux
-        username: SSH 用户名，默认为 root
-        password: SSH 密码（可选）。如果不提供，将使用私钥认证
+        host: 远程主机 IP 地址或域名，例如：192.168.1.100, 192.168.71.111, example.com
+        command: 要执行的 Shell 命令，例如：uname -a, lscpu, free -h, df -h, ps aux
+        username: SSH 登录用户名，默认为 root
+        password: SSH 登录密码（可选）。如果不提供，将使用私钥认证
         port: SSH 端口号，默认为 22
         key_filename: SSH 私钥文件路径（可选）。如果不提供密码，将使用 ~/.ssh/id_rsa
         key_passphrase: 私钥密码短语（可选），用于加密的私钥
@@ -52,14 +65,20 @@ def ssh_remote_exec(
         max_retries: 最大重试次数，默认 3 次
         
     Returns:
-        命令执行结果字符串，包含输出和错误信息
+        命令执行结果字符串，包含标准输出、错误输出和详细的执行信息
         
     Examples:
-        # 使用密码登录
-        ssh_remote_exec("192.168.1.100", "ls -la /tmp", password="your_password")
+        # 查询系统信息
+        ssh_remote_exec("192.168.71.111", "uname -a")
         
-        # 使用默认私钥登录
-        ssh_remote_exec("192.168.1.100", "df -h")
+        # 查看 CPU 信息
+        ssh_remote_exec("192.168.1.100", "lscpu")
+        
+        # 查看内存使用
+        ssh_remote_exec("192.168.1.100", "free -h")
+        
+        # 使用密码认证
+        ssh_remote_exec("192.168.1.100", "df -h", password="your_password")
         
         # 使用指定私钥登录
         ssh_remote_exec("192.168.1.100", "whoami", key_filename="~/.ssh/my_key")

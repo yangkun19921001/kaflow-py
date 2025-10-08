@@ -461,9 +461,14 @@ class StreamMessageProcessor:
             # 不再重新抛出异常，优雅地结束
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             self.logger.error(f"流式处理失败: {e}")
+            self.logger.error(f"详细错误:\n{error_details}")
             yield self._make_event("error", {
-                "error": str(e), 
+                "error": str(e) or repr(e),
+                "error_type": type(e).__name__,
+                "traceback": error_details,
                 "graph_id": self.graph_id
             })
 

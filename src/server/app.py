@@ -27,7 +27,13 @@ from .models import (
     ExtendedChatStreamRequest, 
     HealthResponse,
     MCPServerMetadataRequest,
-    MCPServerMetadataResponse
+    MCPServerMetadataResponse,
+    HistoryMessageRequest,
+    HistoryMessageResponse,
+    FlatMessageRequest,
+    FlatMessageResponse,
+    ThreadListRequest,
+    ThreadListResponse
 )
 from ..core.graph import get_graph_manager, GraphManager
 from ..mcp.mcp import load_mcp_tools
@@ -55,6 +61,58 @@ app.add_middleware(
 # 配置文件缓存：{config_id: config_file_path}
 _config_file_cache: Dict[str, Path] = {}
 _config_loaded = False
+
+
+def _get_config_file_by_id(config_id: str) -> Optional[Path]:
+    """根据配置ID获取配置文件路径"""
+    _load_config_file_mappings()
+    return _config_file_cache.get(str(config_id))
+
+
+def _extract_config_id_from_thread_id(thread_id: str) -> Optional[str]:
+    """
+    从 thread_id 中提取 config_id
+    
+    thread_id 格式: username_uuid_configid
+    例如: admin_12345678-1234-1234-1234-123456789012_ops_agent
+    
+    策略：
+    1. 按 _ 分割
+    2. 从最后一个部分开始，尝试匹配已知的 config_id
+    3. 如果最后一个部分不是有效的 config_id，尝试最后两个/三个部分组合
+    """
+    if not thread_id:
+        return None
+    
+    parts = thread_id.split('_')
+    if len(parts) < 3:
+        return None
+    
+    # 加载配置文件映射
+    _load_config_file_mappings()
+    
+    # 策略1: 尝试最后一个部分
+    last_part = parts[-1]
+    if last_part in _config_file_cache:
+        logger.info(f"✅ 从 thread_id 解析出 config_id: {last_part}")
+        return last_part
+    
+    # 策略2: 尝试最后两个部分（处理 config_id 中包含下划线的情况，如 ops_agent）
+    if len(parts) >= 2:
+        last_two = '_'.join(parts[-2:])
+        if last_two in _config_file_cache:
+            logger.info(f"✅ 从 thread_id 解析出 config_id: {last_two}")
+            return last_two
+    
+    # 策略3: 尝试最后三个部分
+    if len(parts) >= 3:
+        last_three = '_'.join(parts[-3:])
+        if last_three in _config_file_cache:
+            logger.info(f"✅ 从 thread_id 解析出 config_id: {last_three}")
+            return last_three
+    
+    logger.warning(f"⚠️  无法从 thread_id 中解析出有效的 config_id: {thread_id}")
+    return None
 
 
 def _load_config_file_mappings():
@@ -288,6 +346,389 @@ async def list_configs():
     except Exception as e:
         logger.exception(f"获取配置列表错误: {e}")
         raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_DETAIL)
+
+
+@app.post("/api/chat/history", response_model=HistoryMessageResponse)
+async def get_chat_history(request: HistoryMessageRequest):
+    """
+    获取历史对话消息（支持分页）
+    
+    此接口从 MongoDB 持久化存储中获取历史对话记录。
+    
+    参数：
+    - thread_id: 会话线程ID（必需，格式: username_uuid_configid）
+    - page: 页码，从1开始（默认：1）
+    - page_size: 每页大小，1-100（默认：20）
+    - order: 排序方式，desc（最新在前）或asc（最早在前）（默认：desc）
+    - config_id: 配置ID（可选，如果不提供则自动从 thread_id 中解析）
+    
+    返回：
+    - thread_id: 会话线程ID
+    - total: 总记录数
+    - page: 当前页码
+    - page_size: 每页大小
+    - total_pages: 总页数
+    - messages: 消息列表
+    
+    注意：
+    - thread_id 格式为 username_uuid_configid，会自动从中提取 config_id
+    - 只有配置了 MongoDB memory provider 的场景才能获取历史消息
+    - 使用 memory provider 的场景无法持久化历史
+    """
+    try:
+        logger.info(f"📝 获取历史消息: thread_id={request.thread_id}, page={request.page}, page_size={request.page_size}, config_id={request.config_id}")
+        
+        manager = get_graph_manager()
+        checkpointer = None
+        used_config_id = request.config_id
+        
+        # 优先级1：如果没有提供 config_id，尝试从 thread_id 中解析
+        if not used_config_id:
+            used_config_id = _extract_config_id_from_thread_id(request.thread_id)
+            if used_config_id:
+                logger.info(f"🎯 从 thread_id 中解析出 config_id: {used_config_id}")
+        
+        # 优先级2：如果有 config_id（无论是请求提供还是从 thread_id 解析出来的），使用该配置
+        if used_config_id:
+            logger.info(f"🔧 使用配置 ID: {used_config_id}")
+            
+            # 检查是否已加载
+            compiled_graph = manager.registry.get_graph(used_config_id)
+            if not compiled_graph:
+                # 未加载，尝试加载
+                logger.info(f"⏳ 配置 {used_config_id} 未加载，正在加载...")
+                config_file = _get_config_file_by_id(used_config_id)
+                if config_file:
+                    manager.register_graph_from_file(config_file, used_config_id)
+                    compiled_graph = manager.registry.get_graph(used_config_id)
+                    logger.info(f"✅ 配置 {used_config_id} 加载成功")
+                else:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"配置 ID {used_config_id} 不存在"
+                    )
+            
+            if compiled_graph and hasattr(compiled_graph, "checkpointer"):
+                checkpointer = compiled_graph.checkpointer
+                logger.info(f"✅ 找到 checkpointer: {type(checkpointer).__name__}")
+        
+        # 优先级3：自动查找配置了 MongoDB 的场景（作为后备方案）
+        else:
+            logger.info("未指定 config_id，自动查找配置了 MongoDB 的场景")
+            
+            # 先从已加载的图中查找
+            for config_id, compiled_graph in manager.registry._graphs.items():
+                if compiled_graph and hasattr(compiled_graph, "checkpointer"):
+                    temp_checkpointer = compiled_graph.checkpointer
+                    if temp_checkpointer and hasattr(temp_checkpointer, "get_history_messages"):
+                        checkpointer = temp_checkpointer
+                        used_config_id = config_id
+                        logger.info(f"找到已加载的 MongoDB checkpointer: {config_id}")
+                        break
+            
+            # 如果没有找到，扫描所有配置文件
+            if not checkpointer:
+                logger.info("已加载的图中未找到，扫描配置文件...")
+                _load_config_file_mappings()
+                
+                for config_id, config_file in _config_file_cache.items():
+                    try:
+                        # 读取配置文件检查是否配置了 MongoDB
+                        with open(config_file, 'r', encoding='utf-8') as f:
+                            import yaml
+                            config_data = yaml.safe_load(f)
+                        
+                        # 检查是否配置了 MongoDB memory
+                        memory_config = config_data.get('global_config', {}).get('memory', {})
+                        if (memory_config.get('enabled') and 
+                            memory_config.get('provider') == 'mongodb'):
+                            logger.info(f"找到配置了 MongoDB 的场景: {config_id}")
+                            
+                            # 加载该配置
+                            manager.register_graph_from_file(config_file, config_id)
+                            compiled_graph = manager.registry.get_graph(config_id)
+                            
+                            if compiled_graph and hasattr(compiled_graph, "checkpointer"):
+                                checkpointer = compiled_graph.checkpointer
+                                used_config_id = config_id
+                                break
+                    except Exception as e:
+                        logger.warning(f"检查配置文件 {config_id} 失败: {e}")
+                        continue
+        
+        # 验证 checkpointer
+        if not checkpointer or not hasattr(checkpointer, "get_history_messages"):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "no_mongodb_configured",
+                    "message": "未找到配置了 MongoDB 的场景。请确保至少有一个场景配置了 MongoDB memory provider。",
+                    "suggestion": "在 YAML 配置中添加: global_config.memory.provider = 'mongodb'",
+                    "available_configs": list(_config_file_cache.keys())
+                }
+            )
+        
+        # 调用 checkpointer 的方法获取历史消息
+        result = checkpointer.get_history_messages(
+            thread_id=request.thread_id,
+            page=request.page,
+            page_size=request.page_size,
+            order=request.order
+        )
+        
+        logger.info(f"✅ 获取历史消息成功: config_id={used_config_id}, total={result.get('total')}, page={result.get('page')}")
+        
+        # 添加使用的 config_id 到结果中（用于调试）
+        if used_config_id:
+            result['config_id'] = used_config_id
+        
+        return HistoryMessageResponse(**result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 获取历史消息失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/messages", response_model=FlatMessageResponse)
+async def get_flat_messages(request: FlatMessageRequest):
+    """
+    获取展平的消息列表（按单条消息分页）
+    
+    与 /api/chat/history 不同，此接口：
+    - 返回单条消息列表，而不是 checkpoint 列表
+    - 从最新的 checkpoint 中提取所有消息
+    - 按单条消息进行分页
+    
+    参数：
+    - thread_id: 会话线程ID（必需，格式: username_uuid_configid）
+    - page: 页码，从1开始（默认：1）
+    - page_size: 每页大小，1-100（默认：20）
+    - order: 排序方式，desc（最新在前）或asc（最早在前）（默认：desc）
+    - config_id: 配置ID（可选，如果不提供则自动从 thread_id 中解析）
+    
+    返回：
+    - thread_id: 会话线程ID
+    - total: 总消息数
+    - page: 当前页码
+    - page_size: 每页大小
+    - total_pages: 总页数
+    - messages: 单条消息列表
+    
+    注意：
+    - 只有配置了 MongoDB memory provider 的场景才能获取消息
+    - 适用于显示对话历史的 UI 场景
+    """
+    try:
+        logger.info(f"📨 获取展平消息: thread_id={request.thread_id}, page={request.page}, page_size={request.page_size}")
+        
+        manager = get_graph_manager()
+        checkpointer = None
+        used_config_id = request.config_id
+        
+        # 优先级1：如果没有提供 config_id，尝试从 thread_id 中解析
+        if not used_config_id:
+            used_config_id = _extract_config_id_from_thread_id(request.thread_id)
+            if used_config_id:
+                logger.info(f"🎯 从 thread_id 中解析出 config_id: {used_config_id}")
+        
+        # 优先级2：如果有 config_id，使用该配置
+        if used_config_id:
+            logger.info(f"🔧 使用配置 ID: {used_config_id}")
+            
+            # 检查是否已加载
+            compiled_graph = manager.registry.get_graph(used_config_id)
+            if not compiled_graph:
+                # 未加载，尝试加载
+                logger.info(f"⏳ 配置 {used_config_id} 未加载，正在加载...")
+                config_file = _get_config_file_by_id(used_config_id)
+                if config_file:
+                    manager.register_graph_from_file(config_file, used_config_id)
+                    compiled_graph = manager.registry.get_graph(used_config_id)
+                    logger.info(f"✅ 配置 {used_config_id} 加载成功")
+                else:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"配置 ID {used_config_id} 不存在"
+                    )
+            
+            if compiled_graph and hasattr(compiled_graph, "checkpointer"):
+                checkpointer = compiled_graph.checkpointer
+                logger.info(f"✅ 找到 checkpointer: {type(checkpointer).__name__}")
+        
+        # 优先级3：自动查找配置了 MongoDB 的场景
+        else:
+            logger.info("📂 未指定 config_id，自动查找配置了 MongoDB 的场景")
+            _load_config_file_mappings()
+            
+            for config_id, config_file in _config_file_cache.items():
+                try:
+                    with open(config_file, 'r', encoding='utf-8') as f:
+                        import yaml
+                        config_data = yaml.safe_load(f)
+                    
+                    memory_config = config_data.get('global_config', {}).get('memory', {})
+                    if (memory_config.get('enabled') and 
+                        memory_config.get('provider') == 'mongodb'):
+                        logger.info(f"🎯 找到配置了 MongoDB 的场景: {config_id}")
+                        
+                        manager.register_graph_from_file(config_file, config_id)
+                        compiled_graph = manager.registry.get_graph(config_id)
+                        
+                        if compiled_graph and hasattr(compiled_graph, "checkpointer"):
+                            checkpointer = compiled_graph.checkpointer
+                            used_config_id = config_id
+                            break
+                except Exception as e:
+                    logger.warning(f"⚠️  检查配置文件 {config_id} 失败: {e}")
+                    continue
+        
+        # 验证 checkpointer
+        if not checkpointer or not hasattr(checkpointer, "get_flat_messages"):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "no_mongodb_configured",
+                    "message": "未找到配置了 MongoDB 的场景。",
+                    "suggestion": "在 YAML 配置中添加: global_config.memory.provider = 'mongodb'",
+                    "available_configs": list(_config_file_cache.keys())
+                }
+            )
+        
+        # 调用 checkpointer 的方法获取展平消息
+        result = checkpointer.get_flat_messages(
+            thread_id=request.thread_id,
+            page=request.page,
+            page_size=request.page_size,
+            order=request.order
+        )
+        
+        logger.info(f"✅ 获取展平消息成功: config_id={used_config_id}, total={result.get('total')}, page={result.get('page')}")
+        
+        # 添加使用的 config_id 到结果中
+        if used_config_id:
+            result['config_id'] = used_config_id
+        
+        return FlatMessageResponse(**result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 获取展平消息失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/threads", response_model=ThreadListResponse)
+async def get_thread_list(request: ThreadListRequest):
+    """
+    获取会话列表（支持按用户筛选或获取所有会话）
+    
+    此接口用于显示历史会话，每个会话包含第一条消息作为预览。
+    
+    参数：
+    - username: 用户名（可选，不传则返回所有用户的会话）
+    - page: 页码，从1开始（默认：1）
+    - page_size: 每页大小，1-100（默认：20）
+    - order: 排序方式，desc（最新在前）或asc（最早在前）（默认：desc）
+    
+    返回：
+    - username: 用户名（如果查询时指定了用户）
+    - total: 总会话数
+    - page: 当前页码
+    - page_size: 每页大小
+    - total_pages: 总页数
+    - threads: 会话列表（每个会话包含 thread_id、username、first_message 等）
+    
+    注意：
+    - 只有配置了 MongoDB memory provider 的场景才能获取会话列表
+    - 会话按最后更新时间排序
+    - 如果不传 username，将返回所有用户的会话（管理员视图）
+    """
+    try:
+        filter_desc = f"username={request.username}" if request.username else "所有用户"
+        logger.info(f"📋 获取会话列表: {filter_desc}, page={request.page}, page_size={request.page_size}")
+        
+        manager = get_graph_manager()
+        checkpointer = None
+        used_config_id = None
+        
+        # 查找配置了 MongoDB 的场景
+        # 方法1：先从已加载的图中查找
+        for config_id, compiled_graph in manager.registry._graphs.items():
+            if compiled_graph and hasattr(compiled_graph, "checkpointer"):
+                temp_checkpointer = compiled_graph.checkpointer
+                if temp_checkpointer and hasattr(temp_checkpointer, "get_thread_list"):
+                    checkpointer = temp_checkpointer
+                    used_config_id = config_id
+                    logger.info(f"✅ 找到已加载的 MongoDB checkpointer: {config_id}")
+                    break
+        
+        # 方法2：如果没有找到，扫描所有配置文件
+        if not checkpointer:
+            logger.info("📂 已加载的图中未找到，扫描配置文件...")
+            _load_config_file_mappings()
+            
+            for config_id, config_file in _config_file_cache.items():
+                try:
+                    # 读取配置文件检查是否配置了 MongoDB
+                    with open(config_file, 'r', encoding='utf-8') as f:
+                        import yaml
+                        config_data = yaml.safe_load(f)
+                    
+                    # 检查是否配置了 MongoDB memory
+                    memory_config = config_data.get('global_config', {}).get('memory', {})
+                    if (memory_config.get('enabled') and 
+                        memory_config.get('provider') == 'mongodb'):
+                        logger.info(f"🎯 找到配置了 MongoDB 的场景: {config_id}")
+                        
+                        # 加载该配置
+                        manager.register_graph_from_file(config_file, config_id)
+                        compiled_graph = manager.registry.get_graph(config_id)
+                        
+                        if compiled_graph and hasattr(compiled_graph, "checkpointer"):
+                            checkpointer = compiled_graph.checkpointer
+                            used_config_id = config_id
+                            break
+                except Exception as e:
+                    logger.warning(f"⚠️  检查配置文件 {config_id} 失败: {e}")
+                    continue
+        
+        # 验证 checkpointer
+        if not checkpointer or not hasattr(checkpointer, "get_thread_list"):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "no_mongodb_configured",
+                    "message": "未找到配置了 MongoDB 的场景。请确保至少有一个场景配置了 MongoDB memory provider。",
+                    "suggestion": "在 YAML 配置中添加: global_config.memory.provider = 'mongodb'",
+                    "available_configs": list(_config_file_cache.keys())
+                }
+            )
+        
+        # 调用 checkpointer 的方法获取会话列表
+        result = checkpointer.get_thread_list(
+            username=request.username,
+            page=request.page,
+            page_size=request.page_size,
+            order=request.order
+        )
+        
+        logger.info(f"✅ 获取会话列表成功: username={request.username}, total={result.get('total')}, page={result.get('page')}")
+        
+        return ThreadListResponse(**result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 获取会话列表失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/health", response_model=HealthResponse)
