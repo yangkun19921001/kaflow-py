@@ -439,11 +439,11 @@ class AgentNodeBuilder(BaseNodeBuilder):
                 # 为异步 MCP 工具创建同步包装器
                 for tool in available_tools:
                     tool_name = getattr(tool, 'name', 'unknown')
-                    self.logger.debug(f"加载 MCP 工具: {tool_name}")
+                    self.logger.info(f"加载 MCP 工具: {tool_name}")
                     
                     # MCP 工具虽然有 invoke 方法但实际不支持同步调用
                     # LangGraph ReAct Agent 能够正确处理异步工具，所以直接使用
-                    self.logger.debug(f"加载 MCP 工具 {tool_name}，LangGraph 将自动处理异步调用")
+                    self.logger.info(f"加载 MCP 工具 {tool_name}，LangGraph 将自动处理异步调用")
                     mcp_tools.append(tool)
             else:
                 self.logger.warning("MCP 服务器没有提供工具")

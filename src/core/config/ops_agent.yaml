@@ -348,6 +348,14 @@ agents:
     
     # MCP服务器配置
     mcp_servers:
+      - name: "airship_remote_exec"
+        description: "SSH 远程执行工具 MCP 服务器"
+        transport: "sse"
+        url: "http://10.1.48.133:8001/sse"
+        timeout_seconds: 60
+        enabled: true
+        retry_attempts: 3
+
       - name: "remote_execution_server"
         description: "远程命令执行 MCP 服务器"
         transport: "sse"

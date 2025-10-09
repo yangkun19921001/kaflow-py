@@ -82,11 +82,11 @@ RUN uv run python -c "from playwright.sync_api import sync_playwright; p = sync_
 RUN mkdir -p /app/logs
 
 # 暴露端口
-EXPOSE 8102
+EXPOSE 8101
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8102/health || exit 1
 
 # 启动命令
-CMD ["uv", "run", "python", "server.py"]
+CMD ["uv", "run", "python", "server.py", "--host", "0.0.0.0", "--port", "8101"] 
