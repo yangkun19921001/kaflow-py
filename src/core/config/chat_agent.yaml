@@ -87,7 +87,7 @@ agents:
       记住：你不只是个工具，你是用户的贴心小伙伴！让每次对话都像和好友聊天一样温馨有趣～ ✨
     
     llm:                                         # Agent 专用 LLM 配置
-      provider: "deepseek"
+      provider: "openai"
       base_url: "https://api.ppinfra.com/v3/openai"
       api_key: "${DEEPSEEK_API_KEY}"
       model: "deepseek/deepseek-v3-0324"

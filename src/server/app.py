@@ -858,6 +858,14 @@ async def shutdown_event():
     manager.registry.clear()
     _config_file_cache.clear()
     
+    # 🎯 关闭 MongoDB 共享客户端（如果使用了 MongoDB）
+    try:
+        from src.memory.mongodb_checkpointer import MongoDBCheckpointer
+        MongoDBCheckpointer.close_shared_client()
+        logger.info("✅ MongoDB 共享客户端已关闭")
+    except Exception as e:
+        logger.debug(f"关闭 MongoDB 客户端时出错（可能未使用 MongoDB）: {e}")
+    
     logger.info("KaFlow-Py 服务已关闭")
 
 

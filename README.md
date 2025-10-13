@@ -270,9 +270,30 @@ docker exec -it kaflow-py uv run python -c \
    print('✅ Browser:', p.chromium.executable_path); \
    p.stop()"
 
+# 查看浏览器扩展（Docker 构建时自动下载）
+docker exec -it kaflow-py ls -lh /app/browser_extensions/extensions/
+
 # 更新代码后重新构建
 docker compose build --no-cache
 docker compose up -d
+```
+
+#### 浏览器扩展说明
+
+Docker 环境中会**自动禁用**浏览器扩展下载，避免网络超时问题：
+
+- ✅ **自动检测**：检测到 Docker 环境会自动禁用扩展
+- ✅ **无需配置**：无需手动设置环境变量
+- ✅ **避免超时**：不再依赖外网下载扩展（国内可能被墙）
+
+非 Docker 环境（本地开发）会默认启用扩展下载（uBlock Origin 等）。
+
+```bash
+# 查看运行日志，确认扩展状态
+docker compose logs -f | grep "扩展"
+
+# 预期输出（Docker 环境）:
+# 🚫 Docker 环境：禁用浏览器扩展（避免网络超时）
 ```
 
 #### 故障排查

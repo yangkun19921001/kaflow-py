@@ -14,8 +14,29 @@ services:
     image: kaflow-py:latest
     container_name: kaflow-py
     
+    # 🎯 从 .env 文件读取环境变量
+    env_file:
+      - ../.env  # 读取项目根目录的 .env 文件
+    
     # 增加共享内存，浏览器需要
     shm_size: '2gb'
+    
+    # 🎯 解决 "can't start new thread" 问题：增加进程/线程数限制
+    ulimits:
+      nproc: 1000  # 最大进程数
+      nofile:       # 最大文件描述符数
+        soft: 1000
+        hard: 1000
+    
+    # 资源限制（可选，防止资源泄露）
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
     
     ports:
       - "8101:8101"
@@ -27,12 +48,8 @@ services:
       - KAFLOW_RELOAD=false
       - KAFLOW_LOG_LEVEL=info
       
-      # LLM API Keys (从环境变量或 .env 文件读取)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-
-      - MEMORY_PASSWORD=${MEMORY_PASSWORD}
+      # 💡 API Keys 已通过 env_file 自动加载，无需在这里重复配置
+      # 如果需要覆盖 .env 文件中的值，可以在这里设置
       
     
     volumes:

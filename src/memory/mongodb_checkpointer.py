@@ -10,7 +10,7 @@ Github: https://github.com/yangkun19921001
 """
 
 from typing import Optional, Dict, Any, Iterator, Tuple, AsyncIterator
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import pickle
 import os
 
@@ -54,6 +54,11 @@ class MongoDBCheckpointer(BaseCheckpointer):
     - 需要查询历史对话
     """
     
+    # 🎯 类级别的客户端单例（所有实例共享）
+    _shared_client = None
+    _shared_client_uri = None
+    _client_lock = None  # 用于线程安全的客户端创建
+    
     def __init__(self, config: Dict[str, Any]):
         """
         初始化 MongoDB Checkpointer
@@ -80,12 +85,23 @@ class MongoDBCheckpointer(BaseCheckpointer):
         self.password = config.get("password", "")
         self.auth_source = config.get("auth_source", "admin")
         
-        # MongoDB 客户端（延迟初始化）
+        # 构建 URI（用于单例判断）
+        if self.username and self.password:
+            password = os.environ.get(self.password.replace("${", "").replace("}", ""), self.password)
+            self._uri = f"mongodb://{self.username}:{password}@{self.host}:{self.port}/{self.database_name}?authSource={self.auth_source}"
+        else:
+            self._uri = f"mongodb://{self.host}:{self.port}/{self.database_name}"
+        
+        # MongoDB 客户端（使用类级别单例）
         self._client = None
         self._db = None
         self._collection = None
         self._is_connected = False  # 连接状态标志
-        self._setup_lock = None  # 用于防止并发 setup
+        
+        # 初始化类级别的锁（只在第一次创建时）
+        if MongoDBCheckpointer._client_lock is None:
+            import threading
+            MongoDBCheckpointer._client_lock = threading.Lock()
         
         logger.info(f"📦 MongoDBCheckpointer 配置: {self.host}:{self.port}/{self.database_name}")
     
@@ -121,6 +137,18 @@ class MongoDBCheckpointer(BaseCheckpointer):
         username = parts[0]
         return username if username else None
     
+    @staticmethod
+    def _get_cn_time() -> datetime:
+        """
+        获取东八区（中国）时间
+        
+        Returns:
+            带时区信息的 datetime 对象（东八区）
+        """
+        # 东八区 = UTC+8
+        cn_tz = timezone(timedelta(hours=8))
+        return datetime.now(cn_tz)
+    
     def validate_config(self) -> bool:
         """验证配置"""
         if not self.host:
@@ -133,52 +161,97 @@ class MongoDBCheckpointer(BaseCheckpointer):
         
         return True
     
+    def _get_or_create_shared_client(self):
+        """
+        获取或创建共享的 MongoDB 客户端（类级别单例）
+        
+        这个方法确保整个应用只有一个 MongoClient 实例，避免线程泄露
+        
+        Returns:
+            MongoClient 实例
+        """
+        # 🎯 使用类级别的共享客户端（线程安全）
+        with MongoDBCheckpointer._client_lock:
+            # 如果已有客户端且 URI 匹配，直接复用
+            if (MongoDBCheckpointer._shared_client is not None and 
+                MongoDBCheckpointer._shared_client_uri == self._uri):
+                logger.debug("♻️  复用现有的 MongoDB 客户端（单例模式）")
+                return MongoDBCheckpointer._shared_client
+            
+            # 如果 URI 不匹配，关闭旧客户端
+            if (MongoDBCheckpointer._shared_client is not None and 
+                MongoDBCheckpointer._shared_client_uri != self._uri):
+                logger.warning("⚠️  检测到不同的 MongoDB URI，关闭旧客户端")
+                try:
+                    MongoDBCheckpointer._shared_client.close()
+                except Exception as e:
+                    logger.warning(f"关闭旧客户端失败: {e}")
+                MongoDBCheckpointer._shared_client = None
+            
+            # 创建新的客户端
+            try:
+                from pymongo import MongoClient
+                
+                # 东八区时区（用于 MongoDB 客户端）
+                cn_tz = timezone(timedelta(hours=8))
+                
+                logger.info(f"🔗 正在创建共享 MongoDB 客户端: {self.host}:{self.port}")
+                MongoDBCheckpointer._shared_client = MongoClient(
+                    self._uri,
+                    serverSelectionTimeoutMS=5000,  # 5秒超时
+                    connectTimeoutMS=5000,
+                    socketTimeoutMS=5000,
+                    maxPoolSize=5,  # 🎯 减少最大连接数（Docker 环境）
+                    minPoolSize=1,
+                    maxIdleTimeMS=30000,
+                    heartbeatFrequencyMS=30000,  # 增加心跳间隔，减少监控频率
+                    connect=False,  # 延迟连接
+                    tz_aware=True,  # 🎯 启用时区感知
+                    tzinfo=cn_tz,  # 🎯 设置为东八区
+                )
+                MongoDBCheckpointer._shared_client_uri = self._uri
+                
+                # 测试连接
+                MongoDBCheckpointer._shared_client.admin.command('ping')
+                logger.info("✅ MongoDB 共享客户端创建成功（单例模式）")
+                
+                return MongoDBCheckpointer._shared_client
+                
+            except ImportError:
+                logger.error("❌ pymongo 未安装，请运行: uv add pymongo")
+                raise
+            except Exception as e:
+                logger.error(f"❌ 创建 MongoDB 客户端失败: {e}")
+                MongoDBCheckpointer._shared_client = None
+                MongoDBCheckpointer._shared_client_uri = None
+                raise
+    
     async def setup(self) -> None:
         """
         设置 MongoDB 连接
         
-        - 连接到 MongoDB
+        - 获取或创建共享的 MongoDB 客户端（单例模式）
         - 创建索引以优化查询
         """
         try:
-            from pymongo import MongoClient, ASCENDING, DESCENDING
+            from pymongo import ASCENDING, DESCENDING
             from pymongo.errors import ConnectionFailure
             
-            # 构建连接 URI
-            if self.username and self.password:
-                # 支持从环境变量读取密码
-                password = os.environ.get(self.password.replace("${", "").replace("}", ""), self.password)
-                uri = f"mongodb://{self.username}:{password}@{self.host}:{self.port}/{self.database_name}?authSource={self.auth_source}"
-            else:
-                uri = f"mongodb://{self.host}:{self.port}/{self.database_name}"
-            
-            # 创建客户端
-            logger.info(f"🔗 正在连接 MongoDB: {self.host}:{self.port}")
-            self._client = MongoClient(
-                uri,
-                serverSelectionTimeoutMS=5000,  # 5秒超时
-                connectTimeoutMS=5000,
-            )
-            
-            # 测试连接
-            self._client.admin.command('ping')
-            logger.info("✅ MongoDB 连接成功")
+            # 🎯 使用共享客户端（单例模式）
+            self._client = self._get_or_create_shared_client()
             
             # 获取数据库和集合
             self._db = self._client[self.database_name]
             self._collection = self._db[self.collection_name]
             
-            # 创建索引
+            # 创建索引（幂等操作）
             self._collection.create_index([("thread_id", ASCENDING), ("checkpoint_id", DESCENDING)])
             self._collection.create_index([("created_at", DESCENDING)])
-            self._collection.create_index([("username", ASCENDING), ("created_at", DESCENDING)])  # 按用户查询索引
+            self._collection.create_index([("username", ASCENDING), ("created_at", DESCENDING)])
             logger.info(f"✅ 集合索引已创建: {self.collection_name}")
             
             self._is_connected = True
             
-        except ImportError:
-            logger.error("❌ pymongo 未安装，请运行: uv add pymongo")
-            raise
         except ConnectionFailure as e:
             logger.error(f"❌ MongoDB 连接失败: {e}")
             self._is_connected = False
@@ -192,7 +265,7 @@ class MongoDBCheckpointer(BaseCheckpointer):
         """
         确保 MongoDB 已连接（同步版本）
         
-        如果未连接，则立即建立连接
+        如果未连接，则立即建立连接（使用共享客户端）
         用于在同步方法中确保连接可用
         
         Returns:
@@ -202,38 +275,20 @@ class MongoDBCheckpointer(BaseCheckpointer):
             return True
         
         try:
-            from pymongo import MongoClient, ASCENDING, DESCENDING
-            from pymongo.errors import ConnectionFailure
+            from pymongo import ASCENDING, DESCENDING
             
-            # 构建连接 URI
-            if self.username and self.password:
-                # 支持从环境变量读取密码
-                password = os.environ.get(self.password.replace("${", "").replace("}", ""), self.password)
-                uri = f"mongodb://{self.username}:{password}@{self.host}:{self.port}/{self.database_name}?authSource={self.auth_source}"
-            else:
-                uri = f"mongodb://{self.host}:{self.port}/{self.database_name}"
-            
-            # 创建客户端
-            logger.info(f"🔗 正在同步连接 MongoDB: {self.host}:{self.port}")
-            self._client = MongoClient(
-                uri,
-                serverSelectionTimeoutMS=5000,  # 5秒超时
-                connectTimeoutMS=5000,
-            )
-            
-            # 测试连接
-            self._client.admin.command('ping')
-            logger.info("✅ MongoDB 连接成功")
+            # 🎯 使用共享客户端（单例模式）
+            logger.debug("🔗 确保 MongoDB 连接（使用共享客户端）")
+            self._client = self._get_or_create_shared_client()
             
             # 获取数据库和集合
             self._db = self._client[self.database_name]
             self._collection = self._db[self.collection_name]
             
-            # 创建索引
+            # 创建索引（幂等操作）
             self._collection.create_index([("thread_id", ASCENDING), ("checkpoint_id", DESCENDING)])
             self._collection.create_index([("created_at", DESCENDING)])
-            self._collection.create_index([("username", ASCENDING), ("created_at", DESCENDING)])  # 按用户查询索引
-            logger.info(f"✅ 集合索引已创建: {self.collection_name}")
+            self._collection.create_index([("username", ASCENDING), ("created_at", DESCENDING)])
             
             self._is_connected = True
             return True
@@ -244,11 +299,35 @@ class MongoDBCheckpointer(BaseCheckpointer):
             return False
     
     async def teardown(self) -> None:
-        """关闭 MongoDB 连接"""
-        if self._client:
-            self._client.close()
-            self._is_connected = False
-            logger.info("🔒 MongoDB 连接已关闭")
+        """
+        清理实例资源（不关闭共享客户端）
+        
+        注意：由于使用了类级别的共享客户端，此方法不会关闭 MongoDB 连接
+        如需完全关闭连接，请使用类方法 close_shared_client()
+        """
+        self._is_connected = False
+        self._db = None
+        self._collection = None
+        logger.debug("🔒 实例资源已清理（共享客户端未关闭）")
+    
+    @classmethod
+    def close_shared_client(cls) -> None:
+        """
+        关闭共享的 MongoDB 客户端（类方法）
+        
+        此方法会关闭所有实例共享的 MongoDB 客户端
+        通常在应用关闭时调用
+        """
+        with cls._client_lock:
+            if cls._shared_client:
+                try:
+                    cls._shared_client.close()
+                    logger.info("🔒 MongoDB 共享客户端已关闭")
+                except Exception as e:
+                    logger.warning(f"关闭共享客户端时出错: {e}")
+                finally:
+                    cls._shared_client = None
+                    cls._shared_client_uri = None
     
     def get_tuple(self, config: Dict[str, Any]) -> Optional[CheckpointTuple]:
         """
@@ -394,7 +473,7 @@ class MongoDBCheckpointer(BaseCheckpointer):
         
         try:
             # 生成 checkpoint_id（使用时间戳）
-            checkpoint_id = checkpoint.get("id", str(datetime.now().timestamp()))
+            checkpoint_id = checkpoint.get("id", str(self._get_cn_time().timestamp()))
             
             # 获取父 checkpoint_id
             parent_checkpoint_id = config.get("configurable", {}).get("checkpoint_id")
@@ -407,6 +486,9 @@ class MongoDBCheckpointer(BaseCheckpointer):
             # 从 thread_id 中提取 username
             username = self._extract_username_from_thread_id(thread_id)
             
+            # 获取东八区时间
+            cn_time = self._get_cn_time()
+            
             # 构建文档
             doc = {
                 "thread_id": thread_id,
@@ -415,8 +497,8 @@ class MongoDBCheckpointer(BaseCheckpointer):
                 "checkpoint_data": checkpoint_data,
                 "metadata": dict(metadata) if metadata else {},
                 "username": username,  # 新增：存储 username 用于按用户查询
-                "created_at": datetime.now(),
-                "updated_at": datetime.now(),
+                "created_at": cn_time,
+                "updated_at": cn_time,
             }
             
             # 插入或更新
@@ -426,7 +508,7 @@ class MongoDBCheckpointer(BaseCheckpointer):
                 upsert=True
             )
             
-            logger.debug(f"💾 checkpoint 已保存: thread_id={thread_id}, checkpoint_id={checkpoint_id}")
+            logger.debug(f"💾 checkpoint 已保存: thread_id={thread_id}, checkpoint_id={checkpoint_id}, created_at={cn_time}, updated_at={cn_time}")
             
             # 返回更新后的配置
             return {

@@ -3,7 +3,7 @@
 # KaFlow-Py API 测试脚本
 # 使用 curl 测试所有 API 接口
 
-BASE_URL="http://localhost:8102"
+BASE_URL="http://localhost:8101"
 
 echo "🚀 KaFlow-Py API 测试脚本"
 echo "=========================="

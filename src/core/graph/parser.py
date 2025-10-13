@@ -160,7 +160,9 @@ class ProtocolParser:
         def replace_env_var(match):
             var_name = match.group(1)
             default_value = match.group(2) if match.group(2) else ""
-            return os.getenv(var_name, default_value)
+            value = os.getenv(var_name, default_value)
+            self.logger.info(f"解析环境变量: {var_name} = {value}")
+            return value
         
         # 支持 ${VAR_NAME} 和 ${VAR_NAME:default} 格式
         pattern = r'\$\{([^}:]+)(?::([^}]*))?\}'

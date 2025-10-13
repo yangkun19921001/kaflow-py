@@ -334,16 +334,16 @@ agents:
       - **强制退出条件**：如果当前轮次没有执行任何工具，则必须立即使用完成标志结束循环，避免无效的纯思考循环
     
     # 工具配置
-    tools:
-      # SSH 远程执行工具
-      - name: "ssh_remote_exec"
-        type: "remote_exec"
-        description: "在远程服务器上执行单条命令，支持密码和公私钥认证"
+    tools: []
+      # # SSH 远程执行工具
+      # - name: "ssh_remote_exec"
+      #   type: "remote_exec"
+      #   description: "在远程服务器上执行单条命令，支持密码和公私钥认证"
       
-      # SSH 批量执行工具（可选）
-      - name: "ssh_batch_exec"
-        type: "remote_exec"
-        description: "在多台服务器上批量执行相同的命令"
+      # # SSH 批量执行工具（可选）
+      # - name: "ssh_batch_exec"
+      #   type: "remote_exec"
+      #   description: "在多台服务器上批量执行相同的命令"
 
     
     # MCP服务器配置
@@ -386,7 +386,7 @@ agents:
     description: "基于历史消息和分析结果生成运维故障排查报告"
     enabled: true
     llm:
-      provider: "deepseek"
+      provider: "openai"
       base_url: "https://api.ppinfra.com/v3/openai"
       api_key: "${DEEPSEEK_API_KEY}"
       model: "deepseek/deepseek-v3-0324"

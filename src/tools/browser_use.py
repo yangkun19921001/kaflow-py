@@ -64,7 +64,7 @@ def _normalize_browser_config(config: Dict[str, Any]) -> Dict[str, Any]:
     
     在 Docker 环境中：
     - 只能使用无头模式（headless=True）
-    - 如果配置了 headless=False，会被强制改为 True 并输出警告
+    - 禁用默认扩展下载（避免网络超时）
     
     Args:
         config: 原始浏览器配置
@@ -88,8 +88,17 @@ def _normalize_browser_config(config: Dict[str, Any]) -> Dict[str, Any]:
             normalized_config["headless"] = True
         else:
             logger.info("✅ Docker 环境检测：已配置无头模式，符合 Docker 环境要求")
+        
+        # Docker 环境禁用扩展下载（避免网络超时）
+        # 注意：browser-use 不支持自定义扩展路径，只能启用/禁用默认扩展
+        normalized_config["enable_default_extensions"] = False
+        logger.info("🚫 Docker 环境：禁用浏览器扩展（避免网络超时）")
     else:
         logger.debug(f"ℹ️  非 Docker 环境，使用配置的 headless 模式: {normalized_config.get('headless', False)}")
+        # 非 Docker 环境，默认启用扩展（如果用户没有明确禁用）
+        if "enable_default_extensions" not in normalized_config:
+            normalized_config["enable_default_extensions"] = True  # 默认启用扩展
+        logger.debug(f"ℹ️  扩展配置: enable_default_extensions={normalized_config.get('enable_default_extensions', True)}")
     
     return normalized_config
 
@@ -384,6 +393,10 @@ def create_browser_use_tool(llm: Any, **browser_config):
         "save_recording_path": browser_config.get("save_recording_path", None),
     }
     
+    # 处理扩展配置：如果用户明确指定了，使用用户配置；否则在规范化时根据环境决定
+    if "enable_default_extensions" in browser_config:
+        config["enable_default_extensions"] = browser_config["enable_default_extensions"]
+    
     # 规范化配置（处理 Docker 环境的限制）
     config = _normalize_browser_config(config)
     
@@ -413,11 +426,22 @@ def create_browser_use_tool(llm: Any, **browser_config):
             
             logger.info(f"🌐 Starting browser task: {task[:100]}...")
             
-            # 创建浏览器实例 (Browser 在 0.7.10 中已经包含配置)
-            browser = Browser(
-                headless=config["headless"],
-                disable_security=config["disable_security"],
-            )
+            # 创建浏览器实例
+            browser_kwargs = {
+                "headless": config["headless"],
+                "disable_security": config["disable_security"],
+            }
+            
+            # 处理扩展配置（browser-use 使用 enable_default_extensions 参数）
+            enable_extensions = config.get("enable_default_extensions", True)
+            browser_kwargs["enable_default_extensions"] = enable_extensions
+            
+            if enable_extensions:
+                logger.info("✅ 扩展已启用（将下载 uBlock Origin 等）")
+            else:
+                logger.info("🚫 扩展已禁用")
+            
+            browser = Browser(**browser_kwargs)
             
             # 创建 Agent（使用 browser-use 的 LLM wrapper）
             agent = Agent(
@@ -537,11 +561,21 @@ def create_browser_use_with_context_tool(llm: Any, **browser_config):
             
             # 创建或复用浏览器实例
             if browser_instance["browser"] is None:
-                browser_instance["browser"] = Browser(
-                    headless=normalized_config.get("headless", False),
-                    disable_security=normalized_config.get("disable_security", False),
-                )
-                logger.info("🌐 New browser instance created")
+                browser_kwargs = {
+                    "headless": normalized_config.get("headless", False),
+                    "disable_security": normalized_config.get("disable_security", False),
+                }
+                
+                # 处理扩展配置
+                enable_extensions = normalized_config.get("enable_default_extensions", True)
+                browser_kwargs["enable_default_extensions"] = enable_extensions
+                
+                if enable_extensions:
+                    logger.info("🌐 New browser instance created (extensions enabled)")
+                else:
+                    logger.info("🌐 New browser instance created (extensions disabled)")
+                
+                browser_instance["browser"] = Browser(**browser_kwargs)
             
             # 执行任务
             logger.info(f"▶️  Executing task: {task[:100]}...")
@@ -595,35 +629,38 @@ class BrowserUseToolConfig:
     
     @staticmethod
     def default() -> Dict[str, Any]:
-        """默认配置"""
+        """默认配置（自动检测环境，Docker 中禁用扩展）"""
         return {
             "headless": False,
             "disable_security": False,
             "window_w": 1280,
             "window_h": 1100,
             "save_recording_path": None,
+            # disable_extensions 不设置，让 _normalize_browser_config 根据环境决定
         }
     
     @staticmethod
     def headless() -> Dict[str, Any]:
-        """无头模式配置（服务器环境）"""
+        """无头模式配置（服务器环境，自动检测是否 Docker）"""
         return {
             "headless": True,
             "disable_security": False,
             "window_w": 1920,
             "window_h": 1080,
             "save_recording_path": None,
+            # disable_extensions 不设置，让 _normalize_browser_config 根据环境决定
         }
     
     @staticmethod
     def debug() -> Dict[str, Any]:
-        """调试模式配置（慢速、可见窗口）"""
+        """调试模式配置（慢速、可见窗口，启用扩展）"""
         return {
             "headless": False,
             "disable_security": True,
             "window_w": 1280,
             "window_h": 1100,
             "save_recording_path": "./browser_recordings/",
+            "enable_default_extensions": True,  # 明确启用扩展，用于调试
         }
 
 

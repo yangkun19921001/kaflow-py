@@ -19,6 +19,18 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+# 🎯 关键：加载 .env 文件中的环境变量
+try:
+    from dotenv import load_dotenv
+    env_file = project_root / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+        print(f"✅ 已加载环境变量文件: {env_file}")
+    else:
+        print(f"⚠️  未找到 .env 文件: {env_file}")
+except ImportError:
+    print("⚠️  python-dotenv 未安装，跳过 .env 文件加载")
+
 def main():
     """启动服务"""
     
@@ -28,7 +40,8 @@ def main():
     # 启动参数
     host = os.getenv("KAFLOW_HOST", "0.0.0.0")
     port = int(os.getenv("KAFLOW_PORT", "8102"))
-    reload = os.getenv("KAFLOW_RELOAD", "true").lower() == "true"
+    # 生产环境默认关闭 reload（避免创建大量监控线程）
+    reload = os.getenv("KAFLOW_RELOAD", "false").lower() == "true"
     log_level = os.getenv("KAFLOW_LOG_LEVEL", "info")
     
     print(f"""

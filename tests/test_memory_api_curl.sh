@@ -3,7 +3,7 @@
 # KaFlow-Py Memory API 测试脚本
 # 测试内存相关接口
 
-BASE_URL="http://localhost:8102"
+BASE_URL="http://localhost:8101"
 
 echo "🚀 KaFlow-Py Memory API 测试脚本"
 echo "===================================="

@@ -205,6 +205,7 @@ class AgentNodeBuilder(BaseNodeBuilder):
                     tools=tools,
                     loop_config=agent_loop_config 
                 )
+                self.logger.info(f"LLM 配置: {llm_config}")
                 
                 # 打印工具信息用于调试
                 if tools:

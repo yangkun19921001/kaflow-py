@@ -215,3 +215,6 @@ __marimo__/
 
 # 但不忽略 src/core/config/ 目录下的 yaml 配置文件
 !src/core/config/*.yaml
+
+build.sh
+deploy.sh
