@@ -74,4 +74,109 @@ class BaseCheckpointer(BaseCheckpointSaver, ABC):
             bool: 配置是否有效
         """
         return True  # 默认实现，子类可以重写
+    
+    # ==================== 历史消息查询方法（抽象） ====================
+    
+    @abstractmethod
+    def get_flat_messages(
+        self,
+        thread_id: str,
+        page: int = 1,
+        page_size: int = 20,
+        order: str = "desc"
+    ) -> Dict[str, Any]:
+        """
+        获取指定 thread_id 的展平消息列表（按单条消息分页）
+        
+        Args:
+            thread_id: 会话线程 ID
+            page: 页码（从 1 开始）
+            page_size: 每页大小（默认 20）
+            order: 排序方式，"desc" 表示最新的在前，"asc" 表示最早的在前
+            
+        Returns:
+            {
+                "thread_id": str,
+                "total": int,           # 消息总数
+                "page": int,
+                "page_size": int,
+                "total_pages": int,
+                "messages": [...]       # 单条消息列表
+            }
+        """
+        pass
+    
+    @abstractmethod
+    def get_thread_list(
+        self,
+        username: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+        order: str = "desc"
+    ) -> Dict[str, Any]:
+        """
+        获取会话列表（支持按用户筛选或获取所有会话）
+        
+        Args:
+            username: 用户名（可选，如果不传则返回所有用户的会话）
+            page: 页码（从 1 开始）
+            page_size: 每页大小（默认 20）
+            order: 排序方式，"desc" 表示最新的在前，"asc" 表示最早的在前
+            
+        Returns:
+            {
+                "username": str | None,
+                "total": int,
+                "page": int,
+                "page_size": int,
+                "total_pages": int,
+                "threads": [
+                    {
+                        "thread_id": str,
+                        "username": str,  # 会话所属用户
+                        "first_message": str,  # 第一条消息内容（预览）
+                        "last_updated": str,
+                        "message_count": int,
+                        "config_id": str,  # 从 thread_id 解析出的配置 ID
+                    }
+                ]
+            }
+        """
+        pass
+    
+    @abstractmethod
+    def get_history_messages(
+        self, 
+        thread_id: str, 
+        page: int = 1, 
+        page_size: int = 20,
+        order: str = "desc"
+    ) -> Dict[str, Any]:
+        """
+        获取指定 thread_id 的历史消息（支持分页）
+        
+        Args:
+            thread_id: 会话线程 ID
+            page: 页码（从 1 开始）
+            page_size: 每页大小（默认 20）
+            order: 排序方式，"desc" 表示最新的在前，"asc" 表示最早的在前
+            
+        Returns:
+            {
+                "thread_id": str,
+                "total": int,
+                "page": int,
+                "page_size": int,
+                "total_pages": int,
+                "messages": [
+                    {
+                        "checkpoint_id": str,
+                        "messages": [...],  # LangGraph 消息列表
+                        "created_at": str,
+                        "updated_at": str,
+                    }
+                ]
+            }
+        """
+        pass
 
